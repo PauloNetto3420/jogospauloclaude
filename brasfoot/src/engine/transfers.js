@@ -155,6 +155,129 @@ function expectedSalary(player) {
   return base * ageMod;
 }
 
+// -------------------- Renovação de contrato --------------------
+// Negociação direta: clube oferece salário + duração; jogador aceita/recusa.
+// Custo imediato: 2 meses do novo salário como luvas (signing bonus).
+export function renewContract(state, { teamId, playerId, salaryOffer, years }) {
+  const team = state.teams[teamId];
+  const player = state.players[playerId];
+  if (!team || !player) return reject("Jogador ou time inválido.");
+  if (player.teamId !== teamId) return reject("Jogador não pertence ao seu clube.");
+  if (!Number.isFinite(salaryOffer) || salaryOffer <= 0) return reject("Salário inválido.");
+  if (!Number.isFinite(years) || years < 1 || years > 5) return reject("Contrato deve ter entre 1 e 5 anos.");
+
+  const luvas = Math.round(salaryOffer * 2);
+  if (team.finances.balance < luvas) {
+    return reject(`Caixa insuficiente para luvas de R$ ${fmt(luvas)}.`);
+  }
+
+  const expected = expectedRenewalSalary(player);
+  const decision = evaluateRenewal(player, salaryOffer, years, expected);
+  if (!decision.accepted) return decision;
+
+  // Aplica
+  team.finances.balance -= luvas;
+  const currentYear = parseInt((state.currentDate || `${state.season}-01-01`).slice(0, 4), 10);
+  const newEndYear = currentYear + years;
+  player.contract = {
+    ...player.contract,
+    salary: salaryOffer,
+    bonusPerGoal: Math.round(salaryOffer * 0.05),
+    until: `${newEndYear}-12-31`,
+    releaseClause: Math.max(player.contract.releaseClause || 0, player.marketValue * 2),
+  };
+  recalcExpenses(team, state.players);
+
+  return {
+    accepted: true,
+    luvas,
+    message: `${player.name} renovou por ${years} ano${years > 1 ? "s" : ""} (R$ ${fmt(salaryOffer)}/mês · luvas R$ ${fmt(luvas)}).`,
+  };
+}
+
+// Salário esperado na renovação: 15% acima do atual ou do "valor justo" pelo overall,
+// o que for maior. Veteranos (32+) pedem aumento menor.
+function expectedRenewalSalary(player) {
+  const current = player.contract?.salary ?? 0;
+  const fairBase = Math.pow(Math.max(player.overall - 50, 1), 1.9) * 800;
+  const fair = (player.age > 30) ? fairBase * 1.05 : fairBase * 1.15;
+  const raiseFromCurrent = current * (player.age > 32 ? 1.10 : 1.20);
+  return Math.max(fair, raiseFromCurrent);
+}
+
+// Negociação flexível: cada proposta vira uma probabilidade contínua.
+// Salário baixo NÃO trava — só reduz a chance. Moral, idade, lealdade
+// e traits do jogador ajustam a aceitação.
+function evaluateRenewal(player, salaryOffer, years, expected) {
+  const ratio = salaryOffer / expected;
+
+  // 1. Chance base puxada pelo salário relativo ao esperado
+  let chance;
+  if (ratio >= 1.10)      chance = 0.98;  // ofereceu acima do que pediria
+  else if (ratio >= 1.00) chance = 0.92;
+  else if (ratio >= 0.90) chance = 0.78;
+  else if (ratio >= 0.80) chance = 0.55;
+  else if (ratio >= 0.70) chance = 0.32;
+  else if (ratio >= 0.55) chance = 0.15;
+  else if (ratio >= 0.40) chance = 0.06;
+  else                    chance = 0.02;  // simbólico, mas existe
+
+  // 2. Moral do jogador: 100 = quase sempre topa, 40 = quase nunca
+  const morale = player.status?.morale ?? 70;
+  chance += (morale - 70) / 200;          // ±15% nos extremos
+
+  // 3. Idade: veteranos têm menos leverage, aceitam mais
+  if (player.age >= 33) chance += 0.12;
+  if (player.age >= 36) chance += 0.10;
+  // Jovens com OVR alto e potencial são exigentes
+  if (player.age < 24 && player.potential >= 85) chance -= 0.10;
+
+  // 4. Traits
+  if (player.traits?.includes("lider_nato"))   chance += 0.08;  // "abro mão pelo clube"
+  if (player.traits?.includes("inconsistente")) chance += 0.05;  // pouco poder de barganha
+  if (player.traits?.includes("promessa"))      chance -= 0.05;  // quer "preço de promessa"
+
+  // 5. Duração: penalidades suaves, não mais um veto
+  if (player.age < 25 && years < 2)  chance -= 0.30;
+  if (player.age >= 33 && years > 2) chance -= 0.25;
+  if (years === 5 && player.age >= 30) chance -= 0.15;
+
+  chance = Math.max(0.02, Math.min(0.98, chance));
+
+  if (Math.random() < chance) {
+    return accept(buildAcceptMessage(player, ratio, years));
+  }
+  return reject(buildRejectMessage(player, ratio, years, expected));
+}
+
+function buildAcceptMessage(player, ratio, years) {
+  if (ratio >= 1.0)      return `${player.name} fechou o acordo na hora.`;
+  if (ratio >= 0.85)     return `${player.name} aceitou após hesitar um pouco.`;
+  if (ratio >= 0.70)     return `${player.name} cedeu — vai topar por amor à camisa.`;
+  return `${player.name} aceitou (apesar de não ter sido a melhor proposta financeira).`;
+}
+
+function buildRejectMessage(player, ratio, years, expected) {
+  if (ratio < 0.55) {
+    return `${player.name} recusou — proposta muito abaixo do esperado (~R$ ${fmt(Math.round(expected))}/mês).`;
+  }
+  if (player.age < 25 && years < 2) {
+    return `${player.name} quer mais segurança — pediu contrato mais longo.`;
+  }
+  if (player.age >= 33 && years > 2) {
+    return `${player.name} prefere um contrato mais curto nessa idade.`;
+  }
+  if (ratio < 0.80) {
+    return `${player.name} achou a proposta apertada (~R$ ${fmt(Math.round(expected))}/mês esperado). Tente subir ou negociar de novo.`;
+  }
+  return `${player.name} pediu para pensar mais. Pode tentar de novo na próxima.`;
+}
+
+// Expõe o esperado pra UI mostrar antes do prompt
+export function getRenewalExpectation(player) {
+  return Math.round(expectedRenewalSalary(player));
+}
+
 // -------------------- IA: outros clubes também compram --------------------
 //
 // Roda uma "janela curta" a cada rodada. Para cada time controlado pela IA:

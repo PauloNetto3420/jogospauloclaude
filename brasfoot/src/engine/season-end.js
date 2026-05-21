@@ -24,7 +24,7 @@ export function isSeasonOver(state) {
 }
 
 export function endSeason(state, rng) {
-  const report = { season: state.season, champions: {}, promoted: [], relegated: [], retired: [], freeAgents: [] };
+  const report = { season: state.season, champions: {}, promoted: [], relegated: [], retired: [], freeAgents: [], libertaQualifiers: [] };
 
   // 1. Campeões + premiação
   for (const [compId, comp] of Object.entries(state.competitions)) {
@@ -54,6 +54,8 @@ export function endSeason(state, rng) {
     const sortedB = sortStandings(compB, state.teams);
     report.relegated = sortedA.slice(-4).map(s => s.teamId);
     report.promoted = sortedB.slice(0, 4).map(s => s.teamId);
+    // Top 4 da Série A vão para Libertadores da próxima temporada (= cabeças Copa)
+    report.libertaQualifiers = sortedA.slice(0, 4).map(s => s.teamId);
   }
 
   // 3. Envelhecimento + aposentadoria
