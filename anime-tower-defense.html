@@ -1,0 +1,4227 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<title>Anime Tower Defense — Paródia v2</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    background: radial-gradient(ellipse at top, #1a1d2e 0%, #0b0c14 100%);
+    color: #e6e6f0;
+    font-family: "Segoe UI", Tahoma, sans-serif;
+    overflow: hidden;
+  }
+  #app { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
+
+  /* ── HUD superior ── */
+  #topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 9px 18px;
+    background: linear-gradient(90deg, #14162a, #1f2240);
+    border-bottom: 2px solid #2d3158;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+    flex-shrink: 0;
+  }
+  #topbar h1 {
+    font-size: 17px;
+    background: linear-gradient(90deg, #ffffff, #9ecbff, #4a90e2);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    letter-spacing: 2px;
+  }
+  .stats { display: flex; gap: 14px; align-items: center; }
+  .stat {
+    background: rgba(255,255,255,0.05);
+    padding: 5px 12px; border-radius: 8px;
+    border: 1px solid #2d3158; font-size: 13px;
+  }
+
+  /* ── Botões ── */
+  button.primary {
+    background: linear-gradient(90deg, #5dd0ff, #4a7bff);
+    color: #fff; border: none; padding: 7px 14px; border-radius: 8px;
+    font-weight: bold; font-size: 12px; cursor: pointer;
+    transition: transform .1s, box-shadow .2s;
+    box-shadow: 0 0 10px rgba(93,208,255,0.4);
+    width: 100%; margin-top: 6px;
+  }
+  button.primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 0 16px rgba(93,208,255,0.7); }
+  button.primary:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
+  #nextWaveBtn { width: auto; margin-top: 0; }
+  button.sell {
+    background: linear-gradient(90deg, #ff6b6b, #ff3030);
+    color: #fff; border: none; padding: 7px 14px; border-radius: 8px;
+    font-weight: bold; font-size: 12px; cursor: pointer;
+    transition: transform .1s, box-shadow .2s;
+    box-shadow: 0 0 10px rgba(255,80,80,0.4);
+    width: 100%; margin-top: 6px;
+  }
+  button.sell:hover { transform: translateY(-1px); box-shadow: 0 0 16px rgba(255,80,80,0.7); }
+
+  /* ── Layout ── */
+  #main { flex: 1; display: flex; overflow: hidden; }
+
+  /* ── Sidebar ── */
+  #shop {
+    width: 228px;
+    background: linear-gradient(180deg, #14162a, #0f1120);
+    border-right: 2px solid #2d3158;
+    padding: 13px;
+    overflow-y: auto;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  #shop::-webkit-scrollbar { width: 4px; }
+  #shop::-webkit-scrollbar-thumb { background: #2d3158; border-radius: 2px; }
+
+  #shop h2 {
+    color: #5dd0ff; font-size: 11px; margin-bottom: 9px;
+    text-transform: uppercase; letter-spacing: 2px;
+    border-bottom: 1px solid #2d3158; padding-bottom: 5px;
+  }
+
+  /* Cards de torres */
+  .tower-card {
+    background: rgba(255,255,255,0.04); border: 2px solid #2d3158;
+    border-radius: 9px; padding: 9px; margin-bottom: 9px;
+    cursor: pointer; transition: all .15s;
+  }
+  .tower-card:hover:not(.cant-afford) { border-color: #5dd0ff; transform: translateY(-1px); }
+  .tower-card.selected { border-color: #ffd166; box-shadow: 0 0 10px rgba(255,209,102,0.5); }
+  /* Pode comprar — brilho pulsante sutil */
+  .tower-card.can-afford {
+    border-color: #3a6d99;
+    box-shadow: 0 0 0 rgba(93,208,255,0);
+    animation: cardGlow 2.4s ease-in-out infinite;
+  }
+  @keyframes cardGlow {
+    0%, 100% { box-shadow: 0 0 4px rgba(93,208,255,0.25); }
+    50%      { box-shadow: 0 0 14px rgba(93,208,255,0.65); }
+  }
+  /* Não pode comprar — acinzentado, sem hover */
+  .tower-card.cant-afford {
+    opacity: .55;
+    filter: grayscale(70%);
+    cursor: not-allowed;
+    border-color: #222;
+  }
+  .tower-card.cant-afford .name,
+  .tower-card.cant-afford .cost { color: #777; }
+  .tower-card .card-head { display: flex; align-items: center; gap: 7px; }
+  .tower-card .preview { width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; border: 2px solid rgba(255,255,255,0.4); }
+  .tower-card .name { font-size: 13px; font-weight: bold; color: #fff; }
+  .tower-card .cost { color: #ffd166; font-size: 11px; margin-top: 3px; }
+  .tower-card .desc { color: #888; font-size: 10px; margin-top: 4px; line-height: 1.4; }
+
+  /* Painel de inspeção */
+  #inspectPanel {
+    background: rgba(93,208,255,0.05); border: 1px solid #2d5168;
+    border-radius: 10px; padding: 12px;
+  }
+  #inspectPanel h2 { color: #ffd166; border-color: #3d4130; }
+  .iname {
+    font-size: 15px; font-weight: bold; color: #fff;
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
+  }
+  .lvl-dots { font-size: 13px; letter-spacing: 3px; }
+  .srow {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: #999; margin: 2px 0;
+  }
+  .srow b { color: #dde; }
+  .upg-box {
+    margin-top: 9px; background: rgba(93,208,255,0.05);
+    border: 1px solid #2d3158; border-radius: 7px;
+    padding: 8px; font-size: 10px; color: #aaa;
+  }
+  .upg-label { color: #5dd0ff; font-weight: bold; margin-bottom: 3px; font-size: 11px; }
+  .upg-note  { color: #888; font-size: 10px; }
+  .upg-cost  { color: #ffd166; margin-top: 3px; }
+  .hint-text { color: #494949; font-size: 10px; line-height: 1.5; margin-top: 12px; }
+
+  /* Canvas */
+  #canvasWrap {
+    flex: 1; display: flex; justify-content: center; align-items: center;
+    background: #0b0c14; position: relative; overflow: hidden;
+  }
+  canvas { display: block; box-shadow: 0 0 30px rgba(0,0,0,0.8); }
+
+  #hint {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    background: rgba(15,25,55,0.85); border: 1px solid #2a5ec4;
+    padding: 5px 12px; border-radius: 7px; font-size: 11px;
+    color: #9ecbff; pointer-events: none; white-space: nowrap;
+    box-shadow: 0 0 12px rgba(74,144,226,0.25);
+  }
+
+  /* Overlay */
+  #overlay {
+    position: absolute; inset: 0; background: rgba(0,0,0,0.78);
+    display: none; justify-content: center; align-items: center;
+    flex-direction: column; z-index: 50;
+  }
+  #overlay.show { display: flex; }
+  #overlay h2 {
+    font-size: 46px; margin-bottom: 14px; letter-spacing: 3px;
+    background: linear-gradient(180deg, #ffffff 0%, #9ecbff 60%, #4a90e2 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 32px rgba(74,144,226,0.45);
+  }
+  #overlay.win h2 {
+    background: linear-gradient(180deg, #ffffff 0%, #aee0ff 50%, #2a5ec4 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 36px rgba(93,208,255,0.7);
+  }
+  #overlay p { margin-bottom: 20px; color: #b8c8e6; font-size: 15px; letter-spacing: 1px; }
+  #restartBtn { width: auto; margin-top: 0; }
+
+  /* ── Menu Inicial ── */
+  #menuScreen {
+    position: fixed; inset: 0; z-index: 200;
+    background: radial-gradient(ellipse at top, #1a1d2e 0%, #0b0c14 100%);
+    display: flex; flex-direction: column;
+    justify-content: center; align-items: center; gap: 14px;
+  }
+  #menuScreen.hidden { display: none; }
+  #menuScreen h1 {
+    font-size: 36px;
+    background: linear-gradient(90deg,#ffb347,#ff6b6b,#5dd0ff);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    text-align: center; line-height: 1.2;
+  }
+  #menuScreen .sub { color: #556; font-size: 13px; margin-top: -6px; }
+  .pts-display { font-size: 28px; color: #ffd166; font-weight: bold; }
+  .pts-label { font-size: 11px; color: #556; margin-top: -8px; }
+  .talent-section { width: 460px; }
+  .talent-section h2 { color: #5dd0ff; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; border-bottom: 1px solid #2d3158; padding-bottom: 5px; }
+  .talent-grid { display: flex; gap: 10px; }
+  .talent-card {
+    flex: 1; background: rgba(255,255,255,0.04);
+    border: 2px solid #2d3158; border-radius: 10px;
+    padding: 12px; cursor: pointer; transition: all .15s;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .talent-card:hover:not(.cant-afford):not(.owned) { border-color: #ffd166; transform: translateY(-1px); }
+  .talent-card.owned { border-color: #5dd0ff; background: rgba(93,208,255,0.08); cursor: default; }
+  .talent-card.cant-afford { opacity: .45; cursor: not-allowed; }
+  .talent-card .tc-name { font-size: 13px; font-weight: bold; color: #fff; }
+  .talent-card .tc-desc { font-size: 10px; color: #9aa8c4; line-height: 1.4; }
+  .talent-card .tc-cost { font-size: 11px; color: #9ecbff; margin-top: 3px; }
+  .talent-card .tc-owned { font-size: 11px; color: #ffffff; margin-top: 3px; }
+  .talent-card.owned { border-color: #5dd0ff; background: rgba(93,208,255,0.10); box-shadow: 0 0 10px rgba(93,208,255,0.3); }
+  .talent-card:hover:not(.cant-afford):not(.owned) { border-color: #5dd0ff !important; box-shadow: 0 0 12px rgba(93,208,255,0.4); }
+  #menuPlayBtn { width: 220px; font-size: 15px; padding: 12px 20px; margin-top: 4px; }
+
+  /* ── Ultimate ── */
+  #ultimateArea { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+  #ultimateBtn {
+    background: linear-gradient(90deg, #cc3300, #ff6600);
+    color: #fff; border: none; padding: 6px 14px; border-radius: 8px;
+    font-weight: bold; font-size: 12px; cursor: pointer;
+    box-shadow: 0 0 12px rgba(255,100,0,0.5);
+    transition: transform .1s, box-shadow .2s; white-space: nowrap;
+  }
+  #ultimateBtn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 0 22px rgba(255,100,0,0.9); }
+  #ultimateBtn:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
+  .ult-bar-wrap { width: 100%; background: rgba(255,255,255,0.1); border-radius: 3px; height: 5px; overflow: hidden; }
+  .ult-bar { height: 100%; background: linear-gradient(90deg,#ff6600,#ffcc00); width: 0%; border-radius: 3px; }
+
+  /* ── Botão de Mute ── */
+  #muteBtn {
+    background: rgba(255,255,255,0.05);
+    color: #8aa; border: 1px solid #2d3158;
+    padding: 5px 10px; border-radius: 7px;
+    font-size: 13px; cursor: pointer;
+    transition: all .15s; margin-right: 8px;
+  }
+  #muteBtn:hover { color: #5dd0ff; border-color: #5dd0ff; }
+  #muteBtn.muted { color: #555; border-color: #333; }
+
+  /* ── Fade / transições de telas ── */
+  #menuScreen {
+    opacity: 1;
+    transition: opacity .45s ease;
+  }
+  #menuScreen.fading { opacity: 0; pointer-events: none; }
+  #menuScreen.hidden { display: none; }
+
+  #overlay { transition: opacity .35s ease; opacity: 1; }
+
+  /* ── Polimento Menu Inicial (azul escuro + branco) ── */
+  #menuScreen {
+    background:
+      radial-gradient(ellipse at 50% 18%, rgba(60,120,220,0.18) 0%, transparent 55%),
+      linear-gradient(180deg, #050a18 0%, #0a1428 45%, #050810 100%);
+  }
+  #menuScreen::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background:
+      radial-gradient(2px 2px at 12% 22%, rgba(255,255,255,0.55), transparent 60%),
+      radial-gradient(1.5px 1.5px at 78% 18%, rgba(255,255,255,0.4), transparent 60%),
+      radial-gradient(2px 2px at 35% 70%, rgba(180,220,255,0.5), transparent 60%),
+      radial-gradient(1.5px 1.5px at 88% 80%, rgba(255,255,255,0.35), transparent 60%),
+      radial-gradient(2px 2px at 55% 30%, rgba(200,230,255,0.4), transparent 60%);
+  }
+  #menuScreen h1 {
+    font-size: 44px;
+    background: linear-gradient(180deg, #ffffff 0%, #9ecbff 60%, #4a90e2 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 30px rgba(74,144,226,0.5);
+    letter-spacing: 3px;
+    z-index: 2; position: relative;
+  }
+  #menuScreen h1 span {
+    background: linear-gradient(90deg, #5dd0ff, #ffffff);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    letter-spacing: 1px;
+  }
+  #menuScreen .sub, #menuScreen .pts-display, #menuScreen .pts-label,
+  #menuScreen .talent-section, #menuPlayBtn { position: relative; z-index: 2; }
+  .pts-display { color: #5dd0ff; text-shadow: 0 0 18px rgba(93,208,255,0.6); }
+  .record-display {
+    margin-top: 6px; font-size: 14px; color: #ffd166;
+    text-shadow: 0 0 12px rgba(255,209,102,0.5);
+    letter-spacing: 1px;
+  }
+  .record-display b { color: #fff; font-size: 17px; }
+
+  /* ── Inventário ── */
+  #inventoryBox {
+    margin-top: 12px;
+    background: rgba(255,209,102,0.05);
+    border: 1px solid #3d3a2c;
+    border-radius: 9px;
+    padding: 9px;
+  }
+  #inventoryBox h2 {
+    color: #ffd166; font-size: 11px; margin-bottom: 7px;
+    text-transform: uppercase; letter-spacing: 2px;
+    border-bottom: 1px solid #3d3a2c; padding-bottom: 4px;
+  }
+  #inventoryGrid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px;
+    min-height: 38px;
+  }
+  .inv-slot {
+    aspect-ratio: 1;
+    background: rgba(0,0,0,0.3);
+    border: 1.5px dashed #2d3158;
+    border-radius: 5px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; cursor: default; position: relative;
+  }
+  .inv-slot.has-item {
+    background: linear-gradient(135deg, rgba(255,209,102,0.18), rgba(255,140,40,0.12));
+    border: 1.5px solid #ffd166; cursor: pointer;
+    box-shadow: 0 0 8px rgba(255,209,102,0.35);
+    animation: invGlow 2.2s ease-in-out infinite;
+  }
+  @keyframes invGlow {
+    0%, 100% { box-shadow: 0 0 6px rgba(255,209,102,0.3); }
+    50%      { box-shadow: 0 0 14px rgba(255,209,102,0.75); }
+  }
+  .inv-slot.selected { border-color: #5dd0ff; box-shadow: 0 0 14px rgba(93,208,255,0.8); transform: scale(1.06); }
+  .inv-slot:hover.has-item { transform: translateY(-1px); }
+  .inv-tooltip {
+    position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%);
+    background: #14162a; color: #fff;
+    border: 1px solid #ffd166; border-radius: 5px;
+    padding: 4px 7px; font-size: 10px; white-space: nowrap;
+    pointer-events: none; opacity: 0; transition: opacity .15s;
+    z-index: 10;
+  }
+  .inv-slot:hover .inv-tooltip { opacity: 1; }
+  .inv-empty-msg { color: #555; font-size: 10px; font-style: italic; padding: 3px 0; }
+  .equip-hint {
+    margin-top: 7px; padding: 6px; font-size: 10px;
+    background: rgba(93,208,255,0.1); border: 1px dashed #5dd0ff;
+    color: #5dd0ff; border-radius: 5px; text-align: center;
+    display: none;
+  }
+  .equip-hint.show { display: block; animation: equipPulse 1.2s ease-in-out infinite; }
+  @keyframes equipPulse { 0%, 100% { opacity: .7; } 50% { opacity: 1; } }
+  .items-line {
+    margin-top: 6px; font-size: 10px; color: #ffd166;
+    display: flex; flex-wrap: wrap; gap: 3px;
+  }
+  .item-chip {
+    background: rgba(255,209,102,0.15); border: 1px solid #ffd166;
+    padding: 2px 5px; border-radius: 4px; font-size: 10px;
+  }
+  #menuPlayBtn {
+    background: linear-gradient(90deg, #2a5ec4, #5dd0ff);
+    box-shadow: 0 0 22px rgba(93,208,255,0.5);
+    letter-spacing: 2px;
+  }
+
+  /* ── Boss HP Bar (topo do canvas) ── */
+  #bossBar {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    width: 70%; max-width: 700px;
+    background: rgba(10,12,24,0.85);
+    border: 2px solid #66002a;
+    border-radius: 10px;
+    padding: 7px 14px;
+    box-shadow: 0 0 22px rgba(255,40,80,0.45);
+    z-index: 30;
+    display: none;
+  }
+  #bossBar.show { display: block; animation: bossFade .35s ease; }
+  @keyframes bossFade { from { opacity: 0; transform: translate(-50%, -10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+  #bossBar .bb-head {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 12px; color: #ffaad0; margin-bottom: 5px;
+    text-transform: uppercase; letter-spacing: 2px;
+  }
+  #bossBar .bb-name { font-weight: bold; color: #fff; font-size: 14px; letter-spacing: 1px; }
+  #bossBar .bb-track {
+    background: #1a0411; height: 14px; border-radius: 6px;
+    border: 1px solid #330018; overflow: hidden; position: relative;
+  }
+  #bossBar .bb-fill {
+    height: 100%; width: 100%;
+    background: linear-gradient(90deg, #ff2266, #cc0044, #66002a);
+    box-shadow: inset 0 0 12px rgba(255,200,200,0.3);
+    transition: width .2s ease;
+  }
+  #bossBar.shielded .bb-fill {
+    background: linear-gradient(90deg, #66ddff, #2288ff, #224488);
+    box-shadow: inset 0 0 14px rgba(180,230,255,0.5);
+  }
+  #bossBar .bb-tag {
+    font-size: 10px; color: #88ddff;
+    text-transform: uppercase; letter-spacing: 2px;
+    display: none;
+  }
+  #bossBar.shielded .bb-tag { display: inline; }
+
+  /* ── Boss Alert (aviso piscante) ── */
+  #bossAlert {
+    position: absolute; inset: 0;
+    display: none; justify-content: center; align-items: center;
+    flex-direction: column; z-index: 40;
+    background: radial-gradient(ellipse at center, rgba(120,0,30,0.35) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  #bossAlert.show { display: flex; animation: alertIn .4s ease; }
+  @keyframes alertIn { from { opacity: 0; } to { opacity: 1; } }
+  #bossAlert h1 {
+    font-size: 38px; letter-spacing: 3px; text-align: center;
+    background: linear-gradient(180deg, #fff 0%, #ff6688 60%, #aa0033 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 40px rgba(255,40,80,0.7);
+    animation: alertBlink .55s steps(2, end) infinite;
+  }
+  #bossAlert .sub {
+    margin-top: 12px; font-size: 15px; color: #ffaabb;
+    letter-spacing: 4px; text-transform: uppercase;
+  }
+
+  /* ── Painel de Estatísticas de Fim de Jogo ── */
+  #statsPanel {
+    width: 480px; max-width: 92%;
+    background: linear-gradient(180deg, #0c1428 0%, #050a18 100%);
+    border: 2px solid #2a5ec4;
+    border-radius: 14px;
+    padding: 22px 26px;
+    box-shadow: 0 0 40px rgba(74,144,226,0.45), inset 0 0 30px rgba(93,208,255,0.05);
+    text-align: left;
+    margin-bottom: 16px;
+    color: #e6f0ff;
+    animation: statsIn .45s ease;
+  }
+  @keyframes statsIn {
+    from { opacity: 0; transform: translateY(20px) scale(0.96); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  #statsPanel h3 {
+    font-size: 12px; letter-spacing: 4px; text-transform: uppercase;
+    color: #9ecbff; margin-bottom: 14px; text-align: center;
+    border-bottom: 1px solid #2a5ec4; padding-bottom: 8px;
+  }
+  .stats-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 9px 0;
+    border-bottom: 1px solid rgba(74,144,226,0.18);
+    font-size: 13px;
+  }
+  .stats-row:last-child { border-bottom: none; }
+  .stats-row .label {
+    color: #8aa6cc; text-transform: uppercase; letter-spacing: 1.5px;
+    font-size: 11px;
+  }
+  .stats-row .value {
+    color: #ffffff; font-weight: bold; font-size: 16px;
+    text-shadow: 0 0 10px rgba(93,208,255,0.4);
+  }
+  .stats-row .value.big {
+    font-size: 22px;
+    background: linear-gradient(180deg, #fff 0%, #9ecbff 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .mvp-box {
+    margin-top: 14px;
+    background: linear-gradient(135deg, rgba(93,208,255,0.12), rgba(74,144,226,0.05));
+    border: 1.5px solid #5dd0ff;
+    border-radius: 10px;
+    padding: 11px 14px;
+    display: flex; align-items: center; gap: 14px;
+    box-shadow: 0 0 16px rgba(93,208,255,0.3);
+  }
+  .mvp-badge {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #ffd166, #ff9530);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    box-shadow: 0 0 14px rgba(255,209,102,0.6);
+    flex-shrink: 0;
+  }
+  .mvp-info { flex: 1; }
+  .mvp-info .mvp-label {
+    font-size: 10px; letter-spacing: 2px; color: #ffd166;
+    text-transform: uppercase;
+  }
+  .mvp-info .mvp-name {
+    font-size: 17px; font-weight: bold; color: #fff;
+    text-shadow: 0 0 10px rgba(93,208,255,0.4);
+  }
+  .mvp-info .mvp-dmg {
+    font-size: 11px; color: #8aa6cc;
+  }
+
+  /* Botão "Encerrar Modo Infinito" */
+  #endEndlessBtn {
+    background: linear-gradient(90deg, #4a2a8c, #6633cc);
+    color: #fff; border: none; padding: 5px 10px; border-radius: 7px;
+    font-weight: bold; font-size: 11px; cursor: pointer;
+    box-shadow: 0 0 10px rgba(120,80,220,0.4);
+    transition: transform .1s, box-shadow .2s;
+    display: none; margin-right: 6px;
+  }
+  #endEndlessBtn.show { display: inline-block; }
+  #endEndlessBtn:hover { transform: translateY(-1px); box-shadow: 0 0 18px rgba(140,100,240,0.7); }
+  @keyframes alertBlink {
+    0%, 100% { opacity: 1; filter: drop-shadow(0 0 16px rgba(255,40,80,0.8)); }
+    50%      { opacity: 0.35; filter: drop-shadow(0 0 4px rgba(255,40,80,0.3)); }
+  }
+</style>
+</head>
+<body>
+<!-- Menu Inicial -->
+<div id="menuScreen">
+  <h1>⚔ ANIME TOWER DEFENSE<br><span style="font-size:22px;font-weight:normal">Paródia v3</span></h1>
+  <div class="sub">Proteja o caminho — derrote todos os vilões</div>
+  <div class="pts-display" id="menuPts">0</div>
+  <div class="pts-label">Pontos de Talento disponíveis</div>
+  <div class="record-display" id="recordDisplay" style="display:none">🏆 Recorde: <b id="recordWave">0</b> ondas</div>
+  <div class="talent-section">
+    <h2>🎓 Loja de Talentos</h2>
+    <div class="talent-grid" id="talentGrid"></div>
+  </div>
+  <button class="primary" id="menuPlayBtn">▶ Jogar</button>
+</div>
+
+<div id="app">
+
+  <!-- HUD -->
+  <div id="topbar">
+    <h1>⚔ ANIME TOWER DEFENSE — Paródia v3</h1>
+    <div class="stats">
+      <button id="muteBtn" title="Mutar/Desmutar som">🔊</button>
+      <button id="endEndlessBtn" title="Encerrar Modo Infinito e ver estatísticas">⏹ Encerrar ∞</button>
+      <div class="stat">Onda: <b id="waveNum" style="color:#5dd0ff">0</b>/<b id="waveMax" style="color:#5dd0ff">10</b></div>
+      <div class="stat">❤ <b id="lives" style="color:#ff6b6b">20</b></div>
+      <div class="stat">💰 <b id="gold" style="color:#ffd166">300</b></div>
+      <div id="ultimateArea">
+        <button id="ultimateBtn" disabled>🐉 Invocar Dragão</button>
+        <div class="ult-bar-wrap"><div class="ult-bar" id="ultBar"></div></div>
+      </div>
+      <button id="nextWaveBtn" class="primary">Iniciar Onda 1</button>
+    </div>
+  </div>
+
+  <div id="main">
+    <!-- SIDEBAR -->
+    <div id="shop">
+
+      <!-- Painel de construção (loja) -->
+      <div id="shopBuild">
+        <h2>Torres</h2>
+        <div id="towerList"></div>
+        <div class="hint-text">
+          Selecione uma torre e clique na grama para construir.<br>
+          <b style="color:#666">Clique numa torre construída</b> para gerenciar.<br>
+          <b style="color:#666">ESC</b> cancela seleção.<br>
+          <b style="color:#666">Botão direito</b> vende (70%).
+        </div>
+      </div>
+
+      <!-- Painel de inspeção/upgrade (aparece ao clicar numa torre) -->
+      <div id="inspectPanel" style="display:none">
+        <h2>Torre Selecionada</h2>
+        <div id="inspectContent"></div>
+      </div>
+
+      <!-- Inventário de Itens (Drops de Boss) -->
+      <div id="inventoryBox">
+        <h2>🎒 Inventário</h2>
+        <div id="inventoryGrid"></div>
+        <div class="equip-hint" id="equipHint">Clique numa torre para equipar</div>
+      </div>
+
+    </div>
+
+    <!-- CANVAS -->
+    <div id="canvasWrap">
+      <canvas id="game"></canvas>
+
+      <!-- HUD do Boss -->
+      <div id="bossBar">
+        <div class="bb-head">
+          <span class="bb-name" id="bossName">BOSS</span>
+          <span><span class="bb-tag">⛨ Escudo Energético</span> <span id="bossHpText">100%</span></span>
+        </div>
+        <div class="bb-track"><div class="bb-fill" id="bossFill"></div></div>
+      </div>
+
+      <!-- Aviso de Boss -->
+      <div id="bossAlert">
+        <h1>⚠ AVISO: UM KI PODEROSO SE APROXIMA! ⚠</h1>
+        <div class="sub" id="bossAlertSub">PREPARE SUAS DEFESAS</div>
+      </div>
+
+      <div id="hint">Selecione uma torre na loja e clique na grama para construir.</div>
+      <div id="overlay">
+        <h2 id="overlayTitle">GAME OVER</h2>
+        <p  id="overlayMsg">Você foi derrotado pelos vilões.</p>
+
+        <!-- Painel de estatísticas (visível em fim de jogo / encerrar endless) -->
+        <div id="statsPanel" style="display:none">
+          <h3>📊 Resumo da Partida</h3>
+          <div class="stats-row">
+            <span class="label">Onda alcançada</span>
+            <span class="value big" id="statWave">0</span>
+          </div>
+          <div class="stats-row">
+            <span class="label">Dano total causado</span>
+            <span class="value" id="statDmg">0</span>
+          </div>
+          <div class="stats-row">
+            <span class="label">Vilões derrotados</span>
+            <span class="value" id="statKills">0</span>
+          </div>
+          <div class="stats-row">
+            <span class="label">Ouro coletado</span>
+            <span class="value" id="statGold">💰 0</span>
+          </div>
+          <div class="mvp-box">
+            <div class="mvp-badge">🏆</div>
+            <div class="mvp-info">
+              <div class="mvp-label">Torre MVP</div>
+              <div class="mvp-name" id="statMvpName">—</div>
+              <div class="mvp-dmg"  id="statMvpDmg">Nenhuma torre causou dano</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
+          <button class="primary" id="endlessBtn" style="width:auto;margin-top:0;display:none;background:linear-gradient(90deg,#cc3300,#ff6600);box-shadow:0 0 16px rgba(255,100,0,0.6)">∞ Continuar no Modo Infinito</button>
+          <button class="primary" id="menuBtn" style="width:auto;margin-top:0;background:linear-gradient(90deg,#2a5ec4,#5dd0ff)">🏠 Voltar ao Menu</button>
+          <button class="primary" id="restartBtn" style="width:auto;margin-top:0">↺ Tentar Novamente</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   ANIME TOWER DEFENSE v3 — Sons + UI Polida
+   ============================================================ */
+
+/* ============================================================
+   SISTEMA DE SOM — Web Audio API (sintetizado, sem arquivos)
+   ============================================================ */
+const Sound = {
+  ctx: null, muted: false, initialized: false,
+
+  init() {
+    if (this.initialized) return;
+    try {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.initialized = true;
+    } catch(_) {}
+  },
+
+  resume() {
+    if (this.ctx && this.ctx.state === "suspended") this.ctx.resume();
+  },
+
+  toggle() {
+    this.muted = !this.muted;
+    const btn = document.getElementById("muteBtn");
+    if (btn) {
+      btn.textContent = this.muted ? "🔇" : "🔊";
+      btn.classList.toggle("muted", this.muted);
+    }
+  },
+
+  /* Som "Laser Carregado" — Turbo Beam do Gaku
+     Sweep descendente de alta frequência com cauda harmônica. */
+  laser() {
+    if (this.muted || !this.ctx) return;
+    const c = this.ctx, t = c.currentTime;
+    const osc = c.createOscillator();
+    const gain = c.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(1400, t);
+    osc.frequency.exponentialRampToValueAtTime(180, t + 0.22);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.22, t + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+    osc.connect(gain).connect(c.destination);
+    osc.start(t); osc.stop(t + 0.26);
+
+    /* Harmônica brilhante */
+    const osc2 = c.createOscillator();
+    const g2 = c.createGain();
+    osc2.type = "square";
+    osc2.frequency.setValueAtTime(2800, t);
+    osc2.frequency.exponentialRampToValueAtTime(900, t + 0.18);
+    g2.gain.setValueAtTime(0.0001, t);
+    g2.gain.exponentialRampToValueAtTime(0.07, t + 0.01);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+    osc2.connect(g2).connect(c.destination);
+    osc2.start(t); osc2.stop(t + 0.22);
+  },
+
+  /* Som "Corte Espada" — Zuro
+     Ruído branco filtrado com sweep — sibilo rápido. */
+  slash() {
+    if (this.muted || !this.ctx) return;
+    const c = this.ctx, t = c.currentTime;
+    const dur = 0.13;
+    const bufSize = Math.floor(c.sampleRate * dur);
+    const buf = c.createBuffer(1, bufSize, c.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / bufSize);
+    }
+    const noise = c.createBufferSource();
+    noise.buffer = buf;
+    const filter = c.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.setValueAtTime(4000, t);
+    filter.frequency.exponentialRampToValueAtTime(800, t + dur);
+    filter.Q.value = 6;
+    const gain = c.createGain();
+    gain.gain.setValueAtTime(0.35, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    noise.connect(filter).connect(gain).connect(c.destination);
+    noise.start(t); noise.stop(t + dur);
+  },
+
+  /* Som "Explosão/Impacto Grave" — Saky e Dragão Divino
+     Boom grave + thump sub. Intensidade configurável. */
+  explosion(big = false) {
+    if (this.muted || !this.ctx) return;
+    const c = this.ctx, t = c.currentTime;
+    const dur = big ? 0.85 : 0.45;
+
+    /* Burst de ruído (parte alta — crash) */
+    const bufSize = Math.floor(c.sampleRate * dur);
+    const buf = c.createBuffer(1, bufSize, c.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufSize, 1.6);
+    }
+    const noise = c.createBufferSource();
+    noise.buffer = buf;
+    const lp = c.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.setValueAtTime(big ? 1800 : 1200, t);
+    lp.frequency.exponentialRampToValueAtTime(120, t + dur);
+    const ng = c.createGain();
+    ng.gain.setValueAtTime(big ? 0.55 : 0.4, t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    noise.connect(lp).connect(ng).connect(c.destination);
+    noise.start(t); noise.stop(t + dur);
+
+    /* Thump sub-grave */
+    const osc = c.createOscillator();
+    const og = c.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(big ? 110 : 80, t);
+    osc.frequency.exponentialRampToValueAtTime(big ? 28 : 35, t + dur * 0.7);
+    og.gain.setValueAtTime(0.0001, t);
+    og.gain.exponentialRampToValueAtTime(big ? 0.6 : 0.45, t + 0.02);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(og).connect(c.destination);
+    osc.start(t); osc.stop(t + dur);
+  },
+
+  /* Click leve para UI */
+  click() {
+    if (this.muted || !this.ctx) return;
+    const c = this.ctx, t = c.currentTime;
+    const osc = c.createOscillator();
+    const g = c.createGain();
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(660, t);
+    osc.frequency.exponentialRampToValueAtTime(440, t + 0.07);
+    g.gain.setValueAtTime(0.12, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+    osc.connect(g).connect(c.destination);
+    osc.start(t); osc.stop(t + 0.09);
+  }
+};
+
+/* ── CONFIGURAÇÕES GERAIS ── */
+const CONFIG = {
+  tileSize: 60,
+  cols: 15,
+  rows: 10,
+  startGold: 300,
+  startLives: 20,
+  totalWaves: 20,
+  /* Sequência de waypoints [col, row] que define o caminho */
+  path: [
+    [0,4],[1,4],[2,4],[3,4],[3,2],[6,2],[6,6],[10,6],[10,3],[14,3]
+  ]
+};
+
+/* ============================================================
+   CATÁLOGO DE TORRES
+   Cada torre tem um array "upgrades" com 3 entradas (níveis 2, 3 e MAX).
+   Para adicionar uma nova torre, copie um bloco e ajuste os valores.
+   ============================================================ */
+const TOWER_TYPES = [
+  {
+    id: "gaku", name: "Gaku", cost: 150,
+    range: 180, damage: 22, fireRate: 50,
+    color: "#ff8a3d", accent: "#222",
+    description: "Turbo Beam focado de média-longa distância.",
+    attackType: "beam",
+    beamColor: "#5dd0ff", beamWidth: 10, beamDuration: 18,
+    upgrades: [
+      {
+        cost: 120, label: "Nível 2 — Beam+",
+        note: "+10 dano · alcance +20 · mais veloz",
+        damageBonus: 10, fireRateDelta: -6, rangeBonus: 20,
+        beamColor: "#00ffea", beamWidth: 15, bodyColor: "#ff9530"
+      },
+      {
+        cost: 200, label: "Nível 3 — Kamehame-HA!",
+        note: "+18 dano · raio amarelo brilhante",
+        damageBonus: 18, fireRateDelta: -6, rangeBonus: 25,
+        beamColor: "#ffe100", beamWidth: 21, bodyColor: "#ffaa00"
+      },
+      {
+        cost: 320, label: "Nível MAX — Ultra Instinto",
+        note: "+30 dano · raio dourado máximo · AoE",
+        damageBonus: 30, fireRateDelta: -9, rangeBonus: 35,
+        beamColor: "#ffcc00", beamWidth: 28, bodyColor: "#ff6600"
+      }
+    ]
+  },
+  {
+    id: "zuro", name: "Zuro", cost: 100,
+    range: 110, damage: 12, fireRate: 28,
+    color: "#3da55d", accent: "#c9c9c9",
+    description: "Corte triplo em AoE — fatia todos na área.",
+    attackType: "slash",
+    slashColor: "#ffffff", slashCount: 3, slashDuration: 12,
+    upgrades: [
+      {
+        cost: 100, label: "Nível 2 — Corte Duplo",
+        note: "+7 dano · 4 cortes · +área",
+        damageBonus: 7, fireRateDelta: -4, rangeBonus: 15,
+        slashColor: "#aaeeff", slashCount: 4, bodyColor: "#3dc570"
+      },
+      {
+        cost: 175, label: "Nível 3 — Estilo do Vento",
+        note: "+12 dano · 5 cortes dourados",
+        damageBonus: 12, fireRateDelta: -4, rangeBonus: 20,
+        slashColor: "#ffe166", slashCount: 5, bodyColor: "#5de880"
+      },
+      {
+        cost: 260, label: "Nível MAX — Santoryu Dourado",
+        note: "+20 dano · 6 cortes · AoE máximo",
+        damageBonus: 20, fireRateDelta: -6, rangeBonus: 30,
+        slashColor: "#ff9900", slashCount: 6, bodyColor: "#80ffaa"
+      }
+    ]
+  },
+  {
+    id: "saky", name: "Saky", cost: 120,
+    range: 130, damage: 8, fireRate: 120,
+    color: "#ff66aa", accent: "#cc0044",
+    description: "Soco no Chão: lentifica inimigos 40% por 3s em AoE.",
+    attackType: "slam",
+    slamColor: "#ff88ff", slamDuration: 35,
+    slowDuration: 180,
+    upgrades: [
+      {
+        cost: 110, label: "Nível 2 — Soco Duplo",
+        note: "+5 dano · área +20 · slow +0.5s",
+        damageBonus: 5, fireRateDelta: 0, rangeBonus: 20,
+        slowDurationBonus: 30, bodyColor: "#ff4499"
+      },
+      {
+        cost: 180, label: "Nível 3 — Supersônico",
+        note: "+8 dano · recarga reduzida",
+        damageBonus: 8, fireRateDelta: -20, rangeBonus: 25,
+        slowDurationBonus: 30, bodyColor: "#ff2277"
+      },
+      {
+        cost: 250, label: "Nível MAX — Pulso Sísmico",
+        note: "+15 dano · área máxima · slow 5s",
+        damageBonus: 15, fireRateDelta: -20, rangeBonus: 30,
+        slowDurationBonus: 60, bodyColor: "#ff0066"
+      }
+    ]
+  },
+  {
+    id: "luffo", name: "Luffo", cost: 180,
+    range: 145, damage: 18, fireRate: 32,
+    color: "#cc2233", accent: "#ffd166",
+    description: "Soco-Borracha em área com chance de empurrar inimigos.",
+    attackType: "stretch",
+    stretchColor: "#f5d6b0", stretchWidth: 5, stretchDuration: 14,
+    aoeRadius: 36, knockbackChance: 0.20, knockbackDistance: 30,
+    upgrades: [
+      {
+        cost: 140, label: "Nível 2 — Gear Two",
+        note: "+8 dano · área +6 · empurra 25%",
+        damageBonus: 8, fireRateDelta: -4, rangeBonus: 15,
+        aoeBonus: 6, knockbackChanceBonus: 0.05, bodyColor: "#dd2244"
+      },
+      {
+        cost: 220, label: "Nível 3 — Gear Three",
+        note: "+14 dano · área +10 · empurra 35%",
+        damageBonus: 14, fireRateDelta: -4, rangeBonus: 18,
+        aoeBonus: 10, knockbackChanceBonus: 0.10, bodyColor: "#ee3355"
+      },
+      {
+        cost: 320, label: "Nível MAX — Gear Quinto",
+        note: "+25 dano · empurrão garantido em 50%",
+        damageBonus: 25, fireRateDelta: -6, rangeBonus: 22,
+        aoeBonus: 14, knockbackChanceBonus: 0.15, bodyColor: "#ff4466"
+      }
+    ]
+  },
+  {
+    id: "naru", name: "Naru", cost: 220,
+    range: 160, damage: 16, fireRate: 38,
+    color: "#ffd230", accent: "#3a5a8c",
+    description: "Energy Shuriken — projétil que rebate em até 3 inimigos.",
+    attackType: "bounceProjectile",
+    projectileColor: "#5dd0ff", projectileSpeed: 7,
+    bounceCount: 2, bounceRange: 110,
+    upgrades: [
+      {
+        cost: 160, label: "Nível 2 — Kage Bunshin",
+        note: "+6 dano · +1 rebote · mais alcance",
+        damageBonus: 6, fireRateDelta: -4, rangeBonus: 15,
+        bounceBonus: 1, bodyColor: "#ffd95a"
+      },
+      {
+        cost: 240, label: "Nível 3 — Rasen-Shuriken",
+        note: "+12 dano · mais veloz · raio maior",
+        damageBonus: 12, fireRateDelta: -6, rangeBonus: 20,
+        bounceBonus: 0, projColor: "#88e1ff", bodyColor: "#ffe06b"
+      },
+      {
+        cost: 360, label: "Nível MAX — Modo Sennin",
+        note: "+22 dano · +1 rebote · estrela dourada",
+        damageBonus: 22, fireRateDelta: -6, rangeBonus: 30,
+        bounceBonus: 1, projColor: "#ffe680", bodyColor: "#ffd166"
+      }
+    ]
+  }
+  /* ➕ Adicione novas torres aqui (mesma estrutura acima) */
+];
+
+/* ============================================================
+   TIPOS DE INIMIGOS
+   Adicione novos vilões aqui — cada onda usa estes dados.
+   ============================================================ */
+const ENEMY_TYPES = {
+  slime: {
+    id: "slime", name: "Slime",
+    color: "#ff5566", outline: "#992233", radiusBase: 14
+  },
+  ninja: {
+    id: "ninja", name: "Ninja Sombra",
+    color: "#5566ff", outline: "#223388", radiusBase: 11
+  },
+  ogre: {
+    id: "ogre", name: "Ogro Tanque",
+    color: "#b14aff", outline: "#6600aa", radiusBase: 22
+  },
+  /* Curandeiro: cura inimigos por perto a cada 2s */
+  healer: {
+    id: "healer", name: "Curandeiro",
+    color: "#3dd070", outline: "#155a2a", radiusBase: 14,
+    healRange: 90, healAmount: 18, healInterval: 120
+  },
+  /* Escudo: reduz dano dos inimigos imediatamente atrás dele em 50% */
+  shield: {
+    id: "shield", name: "Escudeiro",
+    color: "#8a8e9c", outline: "#3a3d48", radiusBase: 16,
+    shieldRange: 70, shieldReduction: 0.5
+  },
+  /* Boss da onda 10: aura de buff de velocidade */
+  frizzo: {
+    id: "frizzo", name: "Frizzo",
+    color: "#a050ff", outline: "#ffffff", radiusBase: 32,
+    isBoss: true, buffRange: 130, buffInterval: 300, // 5s
+    buffSpeedMult: 1.3, buffDuration: 180
+  },
+  /* Mega Boss da onda 20: escudo de imunidade física abaixo de 50% HP */
+  madaro: {
+    id: "madaro", name: "Madaro",
+    color: "#1a1d2e", outline: "#ff2266", radiusBase: 36,
+    isBoss: true, shieldThreshold: 0.5
+  }
+};
+
+/* ============================================================
+   GERAÇÃO DE ONDAS
+   Cada onda define "esquadrões" de inimigos.
+   Ordem no array = ordem de spawn (ogros sempre por último = boss de onda).
+   ============================================================ */
+function generateWaves(total) {
+  const waves = [];
+  /* +50% density helper e +25% HP por onda (exponencial) */
+  const density = n => Math.ceil(n * 1.5);
+  const goldMult = i => 1 + i * 0.06; // ouro escala ~6% por onda
+  for (let i = 1; i <= total; i++) {
+    const s = Math.pow(1.25, i - 1); // +25% de HP por onda (exponencial)
+    const squads = [];
+    let isBossWave = false, bossName = null;
+
+    /* ── ONDA 10: BOSS FRIZZO ── */
+    if (i === 10) {
+      isBossWave = true; bossName = "Frizzo";
+      /* Tropa de apoio (+50% qtd) */
+      squads.push({ typeId: "slime", count: density(8), hp: Math.floor(90 * s),
+        speed: 1.1, reward: Math.floor(22 * goldMult(i)), interval: 28 });
+      squads.push({ typeId: "ninja", count: density(6), hp: Math.floor(55 * s),
+        speed: 2.6, reward: Math.floor(18 * goldMult(i)), interval: 18 });
+      /* O chefão — HP base DOBRADO (era 6500 → 13000) */
+      squads.push({ typeId: "frizzo", count: 1, hp: 13000,
+        speed: 0.55, reward: 600, interval: 60 });
+      /* Lacaios que entram depois para serem buffados pela aura */
+      squads.push({ typeId: "slime", count: density(6), hp: Math.floor(80 * s),
+        speed: 1.0, reward: Math.floor(22 * goldMult(i)), interval: 45 });
+      waves.push({ number: i, squads, isBossWave, bossName });
+      continue;
+    }
+
+    /* ── ONDA 20: MEGA BOSS MADARO ── */
+    if (i === 20) {
+      isBossWave = true; bossName = "Madaro";
+      squads.push({ typeId: "ninja", count: density(8), hp: Math.floor(70 * s),
+        speed: 3.0, reward: Math.floor(20 * goldMult(i)), interval: 16 });
+      squads.push({ typeId: "ogre", count: density(2), hp: Math.floor(600 * s),
+        speed: 0.4, reward: Math.floor(130 * goldMult(i)), interval: 80 });
+      squads.push({ typeId: "shield", count: density(2), hp: Math.floor(800 * s),
+        speed: 0.55, reward: Math.floor(120 * goldMult(i)), interval: 60 });
+      /* Mega Boss — HP base DOBRADO (era 14000 → 28000) */
+      squads.push({ typeId: "madaro", count: 1, hp: 28000,
+        speed: 0.5, reward: 1800, interval: 60 });
+      squads.push({ typeId: "slime", count: density(10), hp: Math.floor(120 * s),
+        speed: 1.2, reward: Math.floor(24 * goldMult(i)), interval: 25 });
+      waves.push({ number: i, squads, isBossWave, bossName });
+      continue;
+    }
+
+    /* ── ONDAS COMUNS ── */
+
+    /* Slimes — base de toda onda (+50% count) */
+    squads.push({
+      typeId: "slime", count: density(4 + i),
+      hp: Math.floor(70 * s),
+      speed: Math.min(0.7 + i * 0.04, 1.5),
+      reward: Math.floor((12 + i) * goldMult(i)),
+      interval: 30
+    });
+
+    /* Ninjas — a partir da onda 2 */
+    if (i >= 2) {
+      squads.push({
+        typeId: "ninja", count: density(2 + Math.floor(i / 2)),
+        hp: Math.floor(38 * s),
+        speed: Math.min(2.0 + i * 0.06, 3.2),
+        reward: Math.floor((10 + i) * goldMult(i)),
+        interval: 13
+      });
+    }
+
+    /* Curandeiros — começam na onda 4 */
+    if (i >= 4) {
+      squads.push({
+        typeId: "healer", count: density(i >= 14 ? 2 : 1),
+        hp: Math.floor(130 * s),
+        speed: 0.55,
+        reward: Math.floor((45 + i * 2) * goldMult(i)),
+        interval: 55
+      });
+    }
+
+    /* Escudeiros — começam na onda 6 */
+    if (i >= 6) {
+      squads.push({
+        typeId: "shield", count: density(i >= 15 ? 2 : 1),
+        hp: Math.floor(320 * s),
+        speed: 0.6,
+        reward: Math.floor((55 + i * 2) * goldMult(i)),
+        interval: 45
+      });
+    }
+
+    /* Ogros Tanque — a partir da onda 3 */
+    if (i >= 3) {
+      const baseCount = i >= 15 ? 4 : i >= 11 ? 3 : i >= 7 ? 2 : 1;
+      squads.push({
+        typeId: "ogre", count: density(baseCount),
+        hp: Math.floor(450 * s),
+        speed: Math.max(0.42 - i * 0.006, 0.22),
+        reward: Math.floor((80 + i * 10) * goldMult(i)),
+        interval: 75
+      });
+    }
+
+    waves.push({ number: i, squads, isBossWave: false, bossName: null });
+  }
+  return waves;
+}
+
+/* Achata os esquadrões em lista linear de spawns */
+function buildSpawnList(wave) {
+  const list = [];
+  for (const sq of wave.squads) {
+    for (let j = 0; j < sq.count; j++) {
+      list.push({
+        typeId: sq.typeId, hp: sq.hp,
+        speed: sq.speed, reward: sq.reward,
+        interval: sq.interval
+      });
+    }
+  }
+  return list;
+}
+
+/* ============================================================
+   ESTADO GLOBAL
+   ============================================================ */
+/* ============================================================
+   ITENS — Drops dos Bosses
+   ============================================================ */
+const ITEM_TYPES = {
+  earrings: {
+    id: "earrings", name: "Brincos da Fusão", icon: "💠",
+    color: "#ff66cc", desc: "+20% de Dano",
+    apply: (tower) => { tower.damage = Math.round(tower.damage * 1.20); }
+  },
+  band: {
+    id: "band", name: "Faixa de Treino", icon: "🎗",
+    color: "#5dd0ff", desc: "+15% de Alcance",
+    apply: (tower) => { tower.range = Math.round(tower.range * 1.15); }
+  },
+  sword: {
+    id: "sword", name: "Espada Pesada", icon: "⚔",
+    color: "#ffd166", desc: "+25% Velocidade de Ataque",
+    apply: (tower) => { tower.fireRate = Math.max(6, Math.round(tower.fireRate * 0.80)); }
+  }
+};
+const ITEM_LIST = Object.values(ITEM_TYPES);
+
+const TALENTS = [
+  {
+    id: "training", name: "Treinamento Intenso",
+    desc: "+10% de dano global para todas as torres.",
+    cost: 50, icon: "💪"
+  },
+  {
+    id: "wealth", name: "Riqueza",
+    desc: "+100 de ouro inicial em cada partida.",
+    cost: 30, icon: "💰"
+  }
+];
+
+/* ============================================================
+   GAME FEEL — Partículas, Screen Shake, Ciclo Dia/Noite
+   ============================================================ */
+const FX = {
+  particles: [],
+  shake: { time: 0, intensity: 0, offsetX: 0, offsetY: 0 },
+
+  /* Spawn de partículas — cor depende da torre atacante */
+  burst(x, y, color, count = 8, spread = 3, life = 28) {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const s = spread * (0.4 + Math.random() * 0.9);
+      this.particles.push({
+        x, y,
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s - 0.6,    // leve impulso pra cima
+        color,
+        size: 1.5 + Math.random() * 2.5,
+        life, maxLife: life
+      });
+    }
+  },
+
+  shakeScreen(intensity, time) {
+    this.shake.intensity = Math.max(this.shake.intensity, intensity);
+    this.shake.time      = Math.max(this.shake.time, time);
+  },
+
+  update() {
+    /* Partículas */
+    for (const p of this.particles) {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.18;          // gravidade
+      p.vx *= 0.96;          // atrito
+      p.life--;
+    }
+    this.particles = this.particles.filter(p => p.life > 0);
+
+    /* Screen shake */
+    if (this.shake.time > 0) {
+      this.shake.time--;
+      const i = this.shake.intensity * (this.shake.time / 12);
+      this.shake.offsetX = (Math.random() * 2 - 1) * i;
+      this.shake.offsetY = (Math.random() * 2 - 1) * i;
+      if (this.shake.time <= 0) {
+        this.shake.intensity = 0;
+        this.shake.offsetX = this.shake.offsetY = 0;
+      }
+    }
+  },
+
+  drawParticles(ctx) {
+    for (const p of this.particles) {
+      const a = p.life / p.maxLife;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = p.color;
+      ctx.shadowColor = p.color; ctx.shadowBlur = 8;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size * a, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+  }
+};
+
+/* Cor de partículas para cada torre */
+const TOWER_PARTICLE_COLOR = {
+  gaku:  "#ff9a3d",
+  zuro:  "#5dff90",
+  saky:  "#ff66cc",
+  luffo: "#ff5577",
+  naru:  "#5dd0ff"
+};
+
+/* ============================================================
+   CICLO DIA/NOITE — calculado pela onda atual
+   ============================================================ */
+function getLightingPhase() {
+  /* No modo infinito, mantém noite */
+  if (State.endlessMode || State.waveIndex >= 10) return "night";
+  if (State.waveIndex >= 5) return "sunset";
+  return "day";
+}
+
+/* Interpolação suave entre fases — retorna um valor 0..1 para suavizar transição */
+function getNightAmount() {
+  /* day=0, sunset=0.4 do azul-noite implícito, night=1 */
+  if (State.endlessMode) return 1;
+  if (State.waveIndex >= 10) return 1;
+  if (State.waveIndex >= 5)  return (State.waveIndex - 4) / 5 * 0.55; // 0.11..0.55
+  return 0;
+}
+
+const State = {
+  canvas: null, ctx: null,
+  gold: CONFIG.startGold, lives: CONFIG.startLives,
+  waveIndex: 0, waves: [],
+  inWave: false,
+  spawnList: [], spawnIdx: 0, spawnTimer: 0,
+  enemies: [], towers: [], projectiles: [], effects: [],
+  selectedTowerType: null,
+  selectedTower:     null,
+  hoverCell: null,
+  mouse: { x: 0, y: 0 },
+  gameOver: false, victory: false,
+  grid: [], pathPoints: [],
+  /* Meta-progressão */
+  talentPoints: 0,
+  ownedTalents: [],
+  /* Ultimate */
+  ultimateCooldown: 0,
+  ultimateMaxCooldown: 2700,   // 45 × 60 frames
+  /* Modificadores de talentos */
+  globalDamageMultiplier: 1.0,
+  startGoldBonus: 0,
+  /* Boss tracking */
+  activeBoss: null,
+  bossMusicPlaying: false,
+  /* Inventário e drops */
+  inventory: [],            // array de ids de itens
+  selectedItemSlot: null,   // índice do slot selecionado para equipar
+  droppedItems: [],         // { x, y, itemId, life }
+  /* Modo Infinito */
+  endlessMode: false,
+  bestWave: 0,
+  /* Estatísticas da partida */
+  stats: {
+    totalDamage: 0,
+    enemiesKilled: 0,
+    goldCollected: 0,
+    towerDamage: {}   // { towerUID: { name, type, damage, level } }
+  },
+  towerUidCounter: 1,
+  /* Sinergias (linhas a desenhar) */
+  synergyLinks: []
+};
+
+/* ============================================================
+   INICIALIZAÇÃO
+   ============================================================ */
+/* ============================================================
+   META-PROGRESSÃO — localStorage
+   ============================================================ */
+function loadProgress() {
+  try {
+    const raw = localStorage.getItem("atd_progress");
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    State.talentPoints  = data.talentPoints  || 0;
+    State.ownedTalents  = data.ownedTalents  || [];
+    State.bestWave      = data.bestWave      || 0;
+  } catch(_) {}
+  applyTalents();
+}
+
+function saveProgress() {
+  try {
+    localStorage.setItem("atd_progress", JSON.stringify({
+      talentPoints: State.talentPoints,
+      ownedTalents: State.ownedTalents,
+      bestWave:     State.bestWave
+    }));
+  } catch(_) {}
+}
+
+function updateBestWave() {
+  if (State.waveIndex > State.bestWave) {
+    State.bestWave = State.waveIndex;
+    saveProgress();
+  }
+}
+
+function applyTalents() {
+  State.globalDamageMultiplier = State.ownedTalents.includes("training") ? 1.1 : 1.0;
+  State.startGoldBonus         = State.ownedTalents.includes("wealth")   ? 100 : 0;
+}
+
+function renderTalentShop() {
+  document.getElementById("menuPts").textContent = State.talentPoints;
+  const grid = document.getElementById("talentGrid");
+  grid.innerHTML = "";
+  for (const t of TALENTS) {
+    const owned = State.ownedTalents.includes(t.id);
+    const afford = State.talentPoints >= t.cost;
+    const card = document.createElement("div");
+    card.className = "talent-card" + (owned ? " owned" : !afford ? " cant-afford" : "");
+    card.innerHTML = `
+      <div class="tc-name">${t.icon} ${t.name}</div>
+      <div class="tc-desc">${t.desc}</div>
+      ${owned
+        ? `<div class="tc-owned">✔ Desbloqueado</div>`
+        : `<div class="tc-cost">💎 ${t.cost} pts</div>`}
+    `;
+    if (!owned && afford) {
+      card.addEventListener("click", () => {
+        State.talentPoints -= t.cost;
+        State.ownedTalents.push(t.id);
+        applyTalents();
+        saveProgress();
+        renderTalentShop();
+      });
+    }
+    grid.appendChild(card);
+  }
+}
+
+function showMenu() {
+  renderTalentShop();
+  /* Mostra recorde se já houver um */
+  const rec = document.getElementById("recordDisplay");
+  if (State.bestWave > 0) {
+    rec.style.display = "block";
+    document.getElementById("recordWave").textContent = State.bestWave;
+  } else {
+    rec.style.display = "none";
+  }
+  const m = document.getElementById("menuScreen");
+  m.classList.remove("hidden");
+  // força reflow para reativar a transição
+  void m.offsetWidth;
+  m.classList.remove("fading");
+}
+
+function hideMenu() {
+  const m = document.getElementById("menuScreen");
+  m.classList.add("fading");
+  setTimeout(() => m.classList.add("hidden"), 450);
+}
+
+function init() {
+  State.canvas = document.getElementById("game");
+  State.ctx    = State.canvas.getContext("2d");
+  State.canvas.width  = CONFIG.cols * CONFIG.tileSize;
+  State.canvas.height = CONFIG.rows * CONFIG.tileSize;
+
+  loadProgress();
+  buildGrid();
+  buildPathPoints();
+  State.waves = generateWaves(CONFIG.totalWaves);
+
+  renderShop();
+  renderInventory();
+  attachEvents();
+  updateHUD();
+  showMenu();
+  requestAnimationFrame(loop);
+}
+
+function buildGrid() {
+  State.grid = Array.from({ length: CONFIG.rows }, () => new Array(CONFIG.cols).fill(0));
+  const p = CONFIG.path;
+  for (let i = 0; i < p.length - 1; i++) {
+    const [c1, r1] = p[i], [c2, r2] = p[i + 1];
+    if (c1 === c2)
+      for (let r = Math.min(r1,r2); r <= Math.max(r1,r2); r++) State.grid[r][c1] = 1;
+    else
+      for (let c = Math.min(c1,c2); c <= Math.max(c1,c2); c++) State.grid[r1][c] = 1;
+  }
+}
+
+function buildPathPoints() {
+  const ts = CONFIG.tileSize;
+  const raw = CONFIG.path.map(([c, r]) => ({ x: c*ts + ts/2, y: r*ts + ts/2 }));
+  // Remove pontos consecutivos duplicados
+  State.pathPoints = raw.filter((p, i) =>
+    i === 0 || p.x !== raw[i-1].x || p.y !== raw[i-1].y
+  );
+}
+
+/* ============================================================
+   HUD E LOJA
+   ============================================================ */
+function renderShop() {
+  const list = document.getElementById("towerList");
+  list.innerHTML = "";
+  for (const t of TOWER_TYPES) {
+    const card = document.createElement("div");
+    card.className = "tower-card";
+    card.dataset.id = t.id;
+    card.innerHTML = `
+      <div class="card-head">
+        <span class="preview" style="background:${t.color}"></span>
+        <span class="name">${t.name}</span>
+      </div>
+      <div class="cost">💰 ${t.cost} gold</div>
+      <div class="desc">${t.description}</div>
+    `;
+    card.addEventListener("click", () => selectBuildType(t.id));
+    list.appendChild(card);
+  }
+  refreshShopAffordability();
+}
+
+function refreshShopAffordability() {
+  document.querySelectorAll(".tower-card").forEach(card => {
+    const t = TOWER_TYPES.find(x => x.id === card.dataset.id);
+    const selected = !!State.selectedTowerType && State.selectedTowerType.id === t.id;
+    const afford   = State.gold >= t.cost;
+    card.classList.toggle("cant-afford", !afford);
+    card.classList.toggle("can-afford",   afford && !selected);
+    card.classList.toggle("selected",     selected);
+  });
+}
+
+function selectBuildType(id) {
+  const t = TOWER_TYPES.find(x => x.id === id);
+  if (!t) return;
+  deselect();
+  State.selectedTowerType = State.selectedTowerType?.id === id ? null : t;
+  refreshShopAffordability();
+}
+
+function updateHUD() {
+  document.getElementById("waveNum").textContent  = State.waveIndex;
+  document.getElementById("waveMax").textContent  =
+    State.endlessMode ? "∞" : CONFIG.totalWaves;
+  document.getElementById("lives").textContent    = State.lives;
+  document.getElementById("gold").textContent     = State.gold;
+  const btn = document.getElementById("nextWaveBtn");
+  btn.disabled = State.inWave || State.gameOver || State.victory
+               || (!State.endlessMode && State.waveIndex >= CONFIG.totalWaves);
+  if (State.endlessMode) {
+    btn.textContent = `Iniciar Onda ${State.waveIndex + 1} (∞)`;
+  } else {
+    btn.textContent = State.waveIndex >= CONFIG.totalWaves
+      ? "Ondas concluídas!"
+      : `Iniciar Onda ${State.waveIndex + 1}`;
+  }
+  refreshShopAffordability();
+  if (State.selectedTower) renderInspectPanel(State.selectedTower);
+}
+
+/* ============================================================
+   PAINEL DE INSPEÇÃO / UPGRADE
+   ============================================================ */
+function showInspect(tower) {
+  State.selectedTower = tower;
+  document.getElementById("shopBuild").style.display = "none";
+  document.getElementById("inspectPanel").style.display = "block";
+  renderInspectPanel(tower);
+}
+
+function hideInspect() {
+  State.selectedTower = null;
+  document.getElementById("shopBuild").style.display  = "block";
+  document.getElementById("inspectPanel").style.display = "none";
+}
+
+function renderInspectPanel(tower) {
+  const MAX_LV = 1 + tower.type.upgrades.length; // 1 base + 3 upgrades = 4 max
+  const nextUpg = tower.level < MAX_LV ? tower.type.upgrades[tower.level - 1] : null;
+
+  /* Bolinhas de nível */
+  const dots = Array.from({ length: MAX_LV }, (_, i) =>
+    `<span style="color:${i < tower.level ? '#ffd166':'#333'}">${i < tower.level ? '●':'○'}</span>`
+  ).join('');
+
+  const atksPerSec = (60 / tower.fireRate).toFixed(1);
+  const sellVal    = Math.floor(tower.totalInvested * 0.7);
+
+  let upgHtml = "";
+  if (nextUpg) {
+    const ok = State.gold >= nextUpg.cost;
+    upgHtml = `
+      <div class="upg-box">
+        <div class="upg-label">${nextUpg.label}</div>
+        <div class="upg-note">${nextUpg.note}</div>
+        <div class="upg-cost">💰 Custo: ${nextUpg.cost} gold</div>
+      </div>
+      <button class="primary" id="btnUpgrade" ${ok ? '' : 'disabled'}>
+        ${ok ? '⬆ Fazer Upgrade' : '⬆ Ouro insuficiente'}
+      </button>`;
+  } else {
+    upgHtml = `
+      <div class="upg-box">
+        <div class="upg-label" style="color:#ffd166">✦ NÍVEL MÁXIMO</div>
+        <div class="upg-note">Esta torre atingiu seu poder máximo.</div>
+      </div>`;
+  }
+
+  document.getElementById("inspectContent").innerHTML = `
+    <div class="iname">
+      <span>${tower.type.name}</span>
+      <span class="lvl-dots">${dots}</span>
+    </div>
+    <div class="srow"><span>Nível</span>    <b>${tower.level} / ${MAX_LV}</b></div>
+    <div class="srow"><span>Dano</span>     <b>${tower.damage}</b></div>
+    <div class="srow"><span>Vel. Ataque</span><b>${atksPerSec}/s</b></div>
+    <div class="srow"><span>Alcance</span>  <b>${tower.range}px</b></div>
+    <div class="srow"><span>Investido</span><b>💰 ${tower.totalInvested}g</b></div>
+    ${(tower.items && tower.items.length) ? `
+      <div class="items-line">
+        <span style="color:#888">Itens:</span>
+        ${tower.items.map(id => {
+          const it = ITEM_TYPES[id];
+          return `<span class="item-chip" title="${it.desc}">${it.icon} ${it.name}</span>`;
+        }).join("")}
+      </div>` : ""}
+    ${upgHtml}
+    <button class="sell" id="btnSell">🪙 Vender +${sellVal}g (70%)</button>
+    <div style="font-size:10px;color:#444;margin-top:8px;text-align:center">ESC ou clique fora para fechar</div>
+  `;
+
+  document.getElementById("btnSell")?.addEventListener("click", () => sellTower(tower));
+  document.getElementById("btnUpgrade")?.addEventListener("click", () => upgradeTower(tower));
+}
+
+/* ============================================================
+   EVENTOS
+   ============================================================ */
+function attachEvents() {
+  const cv = State.canvas;
+
+  cv.addEventListener("mousemove", e => {
+    const r = cv.getBoundingClientRect();
+    State.mouse.x = e.clientX - r.left;
+    State.mouse.y = e.clientY - r.top;
+    State.hoverCell = pixelToCell(State.mouse.x, State.mouse.y);
+  });
+
+  cv.addEventListener("click", () => {
+    /* Prioridade 1: coletar item dropado */
+    if (tryClickDroppedItem(State.mouse.x, State.mouse.y)) return;
+
+    const cell  = State.hoverCell;
+    const tower = State.towers.find(t => t.col === cell.col && t.row === cell.row);
+
+    /* Prioridade 2: equipar item numa torre */
+    if (State.selectedItemSlot !== null) {
+      if (tower) { equipItemOnTower(tower); }
+      else { State.selectedItemSlot = null; renderInventory(); }
+      return;
+    }
+
+    if (State.selectedTowerType) {
+      /* Modo construção: clique em torre existente cancela e abre inspeção */
+      if (tower) {
+        State.selectedTowerType = null;
+        refreshShopAffordability();
+        showInspect(tower);
+      } else {
+        tryPlaceTower(cell.col, cell.row);
+      }
+    } else if (tower) {
+      showInspect(tower);
+    } else {
+      deselect();
+    }
+  });
+
+  cv.addEventListener("contextmenu", e => {
+    e.preventDefault();
+    const cell  = State.hoverCell;
+    const tower = State.towers.find(t => t.col === cell.col && t.row === cell.row);
+    if (tower) sellTower(tower);
+  });
+
+  window.addEventListener("keydown", e => {
+    if (e.key === "Escape") {
+      if (State.selectedItemSlot !== null) {
+        State.selectedItemSlot = null;
+        renderInventory();
+      } else {
+        deselect();
+      }
+    }
+  });
+
+  document.getElementById("nextWaveBtn").addEventListener("click", startNextWave);
+  document.getElementById("restartBtn").addEventListener("click", restartGame);
+  document.getElementById("endlessBtn").addEventListener("click", startEndlessMode);
+  document.getElementById("endEndlessBtn").addEventListener("click", endEndlessRun);
+  document.getElementById("menuBtn").addEventListener("click", () => {
+    restartGame(); // já volta ao menu no fim
+  });
+  document.getElementById("ultimateBtn").addEventListener("click", fireUltimate);
+  document.getElementById("menuPlayBtn").addEventListener("click", () => {
+    Sound.init(); Sound.resume(); Sound.click();
+    State.gold = CONFIG.startGold + State.startGoldBonus;
+    document.getElementById("gold").textContent = State.gold;
+    hideMenu();
+  });
+
+  document.getElementById("muteBtn").addEventListener("click", () => {
+    Sound.init(); Sound.resume();
+    Sound.toggle();
+  });
+
+  /* Inicializa o áudio na primeira interação (regra de autoplay dos browsers) */
+  const wakeAudio = () => { Sound.init(); Sound.resume(); };
+  window.addEventListener("pointerdown", wakeAudio, { once: false });
+  window.addEventListener("keydown",     wakeAudio, { once: false });
+}
+
+function deselect() {
+  State.selectedTowerType = null;
+  hideInspect();
+  refreshShopAffordability();
+}
+
+function pixelToCell(x, y) {
+  return {
+    col: Math.floor(x / CONFIG.tileSize),
+    row: Math.floor(y / CONFIG.tileSize)
+  };
+}
+
+/* ============================================================
+   CONSTRUÇÃO, UPGRADE E VENDA
+   ============================================================ */
+function tryPlaceTower(col, row) {
+  if (!State.selectedTowerType) return;
+  if (col < 0 || row < 0 || col >= CONFIG.cols || row >= CONFIG.rows) return;
+  if (State.grid[row][col] !== 0) return;
+  const t = State.selectedTowerType;
+  if (State.gold < t.cost) return;
+
+  State.gold -= t.cost;
+  State.grid[row][col] = 2;
+  const ts = CONFIG.tileSize;
+  State.towers.push({
+    uid: State.towerUidCounter++,
+    type: t, col, row,
+    x: col * ts + ts / 2, y: row * ts + ts / 2,
+    level: 1, cooldown: 0, target: null, angle: 0,
+    totalInvested: t.cost,
+    /* Sinergia — recalculado a cada frame */
+    synergyFireMult: 1.0, synergyRangeMult: 1.0,
+    /* Stats mutáveis — modificados pelos upgrades */
+    damage:   t.damage,
+    fireRate: t.fireRate,
+    range:    t.range,
+    /* Visuais mutáveis */
+    beamColor:    t.beamColor    || "#5dd0ff",
+    beamWidth:    t.beamWidth    || 10,
+    slashColor:   t.slashColor   || "#fff",
+    slashCount:   t.slashCount   || 3,
+    slowDuration: t.slowDuration || 0,
+    /* Luffo */
+    aoeRadius:        t.aoeRadius        || 0,
+    knockbackChance:  t.knockbackChance  || 0,
+    knockbackDistance:t.knockbackDistance|| 0,
+    stretchColor:     t.stretchColor     || "#f5d6b0",
+    stretchWidth:     t.stretchWidth     || 5,
+    /* Naru */
+    bounceCount:      t.bounceCount      || 0,
+    bounceRange:      t.bounceRange      || 0,
+    projColor:        t.projectileColor  || "#5dd0ff",
+    projSpeed:        t.projectileSpeed  || 6,
+    bodyColor:        t.color
+  });
+  updateHUD();
+}
+
+function upgradeTower(tower) {
+  const MAX_LV = 1 + tower.type.upgrades.length;
+  if (tower.level >= MAX_LV) return;
+  const upg = tower.type.upgrades[tower.level - 1];
+  if (State.gold < upg.cost) return;
+
+  State.gold           -= upg.cost;
+  tower.totalInvested  += upg.cost;
+  tower.level++;
+
+  tower.damage   += upg.damageBonus   || 0;
+  tower.fireRate  = Math.max(8, tower.fireRate + (upg.fireRateDelta || 0));
+  tower.range    += upg.rangeBonus    || 0;
+
+  if (upg.beamColor)         tower.beamColor    = upg.beamColor;
+  if (upg.beamWidth)         tower.beamWidth    = upg.beamWidth;
+  if (upg.slashColor)        tower.slashColor   = upg.slashColor;
+  if (upg.slashCount)        tower.slashCount   = upg.slashCount;
+  if (upg.slowDurationBonus) tower.slowDuration += upg.slowDurationBonus;
+  if (upg.bodyColor)         tower.bodyColor    = upg.bodyColor;
+  /* Luffo */
+  if (upg.aoeBonus)             tower.aoeRadius       += upg.aoeBonus;
+  if (upg.knockbackChanceBonus) tower.knockbackChance += upg.knockbackChanceBonus;
+  /* Naru */
+  if (upg.bounceBonus) tower.bounceCount += upg.bounceBonus;
+  if (upg.projColor)   tower.projColor    = upg.projColor;
+
+  updateHUD();
+  renderInspectPanel(tower);
+}
+
+function sellTower(tower) {
+  State.gold += Math.floor(tower.totalInvested * 0.7);
+  State.grid[tower.row][tower.col] = 0;
+  State.towers = State.towers.filter(t => t !== tower);
+  if (State.selectedTower === tower) hideInspect();
+  updateHUD();
+}
+
+/* ============================================================
+   ONDAS E SPAWN
+   ============================================================ */
+function startNextWave() {
+  if (State.inWave || State.gameOver || State.victory) return;
+  if (State.waveIndex >= CONFIG.totalWaves) return;
+  State.waveIndex++;
+  const wave = State.waves[State.waveIndex - 1];
+
+  /* Boss wave: aviso piscante + música tensa */
+  if (wave.isBossWave) {
+    showBossAlert(wave.bossName);
+    startBossMusic();
+    /* Atrasa o spawn pra dar tempo de ler o aviso */
+    State.spawnList  = buildSpawnList(wave);
+    State.spawnIdx   = 0;
+    State.spawnTimer = 180; // 3s
+  } else {
+    State.spawnList  = buildSpawnList(wave);
+    State.spawnIdx   = 0;
+    State.spawnTimer = State.spawnList[0]?.interval ?? 30;
+  }
+  State.inWave = true;
+  updateHUD();
+}
+
+/* ============================================================
+   INVENTÁRIO E ITENS
+   ============================================================ */
+function renderInventory() {
+  const grid = document.getElementById("inventoryGrid");
+  grid.innerHTML = "";
+  const slotCount = Math.max(4, State.inventory.length);
+  for (let i = 0; i < slotCount; i++) {
+    const itemId = State.inventory[i];
+    const slot = document.createElement("div");
+    slot.className = "inv-slot";
+    if (itemId) {
+      const item = ITEM_TYPES[itemId];
+      slot.classList.add("has-item");
+      if (State.selectedItemSlot === i) slot.classList.add("selected");
+      slot.style.color = item.color;
+      slot.innerHTML = `${item.icon}<div class="inv-tooltip">${item.name} — ${item.desc}</div>`;
+      slot.addEventListener("click", () => selectItemSlot(i));
+    }
+    grid.appendChild(slot);
+  }
+  document.getElementById("equipHint").classList.toggle("show", State.selectedItemSlot !== null);
+}
+
+function selectItemSlot(i) {
+  State.selectedItemSlot = (State.selectedItemSlot === i) ? null : i;
+  /* Desfaz seleção de torre/construção pra não conflitar */
+  State.selectedTowerType = null;
+  refreshShopAffordability();
+  renderInventory();
+}
+
+function equipItemOnTower(tower) {
+  if (State.selectedItemSlot === null) return false;
+  const itemId = State.inventory[State.selectedItemSlot];
+  if (!itemId) { State.selectedItemSlot = null; renderInventory(); return false; }
+  const item = ITEM_TYPES[itemId];
+  item.apply(tower);
+  tower.items = tower.items || [];
+  tower.items.push(itemId);
+  /* Remove o item do inventário */
+  State.inventory.splice(State.selectedItemSlot, 1);
+  State.selectedItemSlot = null;
+  Sound.click();
+  renderInventory();
+  if (State.selectedTower === tower) renderInspectPanel(tower);
+  return true;
+}
+
+function dropItemAt(x, y) {
+  const item = ITEM_LIST[Math.floor(Math.random() * ITEM_LIST.length)];
+  State.droppedItems.push({
+    x, y, itemId: item.id,
+    bob: Math.random() * Math.PI * 2,
+    life: 1800   // 30s para coletar
+  });
+}
+
+function tryClickDroppedItem(mx, my) {
+  for (let i = 0; i < State.droppedItems.length; i++) {
+    const d = State.droppedItems[i];
+    if (Math.hypot(d.x - mx, d.y - my) <= 16) {
+      State.inventory.push(d.itemId);
+      State.droppedItems.splice(i, 1);
+      Sound.click();
+      renderInventory();
+      return true;
+    }
+  }
+  return false;
+}
+
+function updateDroppedItems() {
+  for (const d of State.droppedItems) { d.bob += 0.08; d.life--; }
+  State.droppedItems = State.droppedItems.filter(d => d.life > 0);
+}
+
+/* ============================================================
+   MODO INFINITO
+   ============================================================ */
+function generateEndlessWave(waveNum) {
+  /* waveNum aqui é o número absoluto da onda (ex: 21, 22, ...) */
+  const endlessLevel = waveNum - 20;                  // 1, 2, 3...
+  const scale = Math.pow(1.15, endlessLevel);          // +15% por onda no endless
+  const density = n => Math.ceil(n * 1.5);             // +50% densidade
+  const squads = [];
+  let isBossWave = false, bossName = null;
+
+  /* A cada 5 ondas no endless, surge um boss (alterna Frizzo/Madaro) */
+  if (endlessLevel % 5 === 0) {
+    isBossWave = true;
+    const useFrizzo = (endlessLevel / 5) % 2 === 1;
+    bossName = useFrizzo ? "Frizzo" : "Madaro";
+    squads.push({ typeId: "ninja", count: density(6 + endlessLevel), hp: Math.floor(60 * scale),
+      speed: 2.8, reward: 28, interval: 14 });
+    squads.push({ typeId: "shield", count: density(2), hp: Math.floor(400 * scale),
+      speed: 0.6, reward: 80, interval: 45 });
+    /* Bosses no endless já entram com HP base dobrado */
+    squads.push({
+      typeId: useFrizzo ? "frizzo" : "madaro",
+      count: 1,
+      hp: Math.floor((useFrizzo ? 13000 : 28000) * scale),
+      speed: useFrizzo ? 0.6 : 0.55,
+      reward: useFrizzo ? 800 : 2200,
+      interval: 50
+    });
+    squads.push({ typeId: "slime", count: density(10), hp: Math.floor(100 * scale),
+      speed: 1.3, reward: 28, interval: 22 });
+    return { number: waveNum, squads, isBossWave, bossName };
+  }
+
+  /* Onda comum aleatória — escolhe 3-5 tipos */
+  const pool = ["slime", "ninja", "ogre", "healer", "shield"];
+  const picked = [];
+  const numTypes = 3 + Math.floor(Math.random() * 3);
+  while (picked.length < numTypes) {
+    const t = pool[Math.floor(Math.random() * pool.length)];
+    if (!picked.includes(t)) picked.push(t);
+  }
+
+  const baseStats = {
+    slime:  { hp: 80,  speed: 1.0, reward: 22, count: 8,  interval: 25 },
+    ninja:  { hp: 45,  speed: 2.6, reward: 18, count: 6,  interval: 14 },
+    ogre:   { hp: 500, speed: 0.4, reward: 110, count: 2, interval: 75 },
+    healer: { hp: 140, speed: 0.6, reward: 60, count: 1,  interval: 50 },
+    shield: { hp: 350, speed: 0.6, reward: 70, count: 1,  interval: 50 }
+  };
+
+  for (const typeId of picked) {
+    const b = baseStats[typeId];
+    const countBonus = Math.floor(endlessLevel / 3);
+    squads.push({
+      typeId,
+      count:    density(b.count + countBonus),
+      hp:       Math.floor(b.hp * scale),
+      speed:    typeId === "ogre" ? Math.max(0.2, b.speed - endlessLevel * 0.005)
+                                  : Math.min(b.speed * (1 + endlessLevel * 0.02), 3.6),
+      reward:   Math.floor(b.reward * (1 + endlessLevel * 0.05)),
+      interval: b.interval
+    });
+  }
+
+  return { number: waveNum, squads, isBossWave: false, bossName: null };
+}
+
+function appendEndlessWave() {
+  const next = State.waveIndex + 1;
+  State.waves.push(generateEndlessWave(next));
+}
+
+function startEndlessMode() {
+  State.endlessMode = true;
+  State.victory = false;
+  State.gameOver = false;
+  /* Mantém torres, ouro e inventário do jogador */
+  document.getElementById("overlay").classList.remove("show", "win");
+  document.getElementById("endlessBtn").style.display = "none";
+  document.getElementById("statsPanel").style.display = "none";
+  document.getElementById("endEndlessBtn").classList.add("show");
+  /* Atualiza limite de ondas — efetivamente infinito */
+  CONFIG.totalWaves = Infinity;
+  /* Pré-gera a próxima onda */
+  appendEndlessWave();
+  updateHUD();
+}
+
+/* Encerra o Modo Infinito de propósito → vitória “honorável” + stats */
+function endEndlessRun() {
+  if (!State.endlessMode || State.gameOver || State.victory) return;
+  State.victory = true; State.inWave = false;
+  stopBossMusic(); hideBossBar();
+  updateBestWave();
+  document.getElementById("endEndlessBtn").classList.remove("show");
+  document.getElementById("endlessBtn").style.display = "none";
+  const earned = awardPoints(50);
+  const ov = document.getElementById("overlay");
+  ov.classList.add("win", "show");
+  document.getElementById("overlayTitle").textContent = "RUN ENCERRADA!";
+  document.getElementById("overlayMsg").textContent =
+    `Você sobreviveu até a onda ${State.waveIndex}! +${earned} pontos de talento.`;
+  showStatsPanel();
+}
+
+/* ============================================================
+   PAINEL DE ESTATÍSTICAS
+   ============================================================ */
+function showStatsPanel() {
+  const panel = document.getElementById("statsPanel");
+  panel.style.display = "block";
+
+  document.getElementById("statWave").textContent  = State.waveIndex;
+  document.getElementById("statDmg").textContent   = State.stats.totalDamage.toLocaleString("pt-BR");
+  document.getElementById("statKills").textContent = State.stats.enemiesKilled;
+  document.getElementById("statGold").textContent  = "💰 " + State.stats.goldCollected.toLocaleString("pt-BR");
+
+  /* Acha o MVP */
+  let mvp = null;
+  for (const uid in State.stats.towerDamage) {
+    const t = State.stats.towerDamage[uid];
+    if (!mvp || t.damage > mvp.damage) mvp = t;
+  }
+  if (mvp) {
+    document.getElementById("statMvpName").textContent =
+      `${mvp.name} (Nível ${mvp.level})`;
+    document.getElementById("statMvpDmg").textContent =
+      `${mvp.damage.toLocaleString("pt-BR")} de dano causado`;
+  } else {
+    document.getElementById("statMvpName").textContent = "—";
+    document.getElementById("statMvpDmg").textContent  = "Nenhuma torre causou dano";
+  }
+}
+
+function hideStatsPanel() {
+  document.getElementById("statsPanel").style.display = "none";
+}
+
+/* ============================================================
+   UI DE BOSS — Alerta + Barra de vida
+   ============================================================ */
+function showBossAlert(name) {
+  const el  = document.getElementById("bossAlert");
+  const sub = document.getElementById("bossAlertSub");
+  sub.textContent = `${name.toUpperCase()} ESTÁ CHEGANDO — PREPARE SUAS DEFESAS`;
+  el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 2800);
+}
+
+function showBossBar(boss) {
+  const bar = document.getElementById("bossBar");
+  document.getElementById("bossName").textContent = boss.typeDef.name.toUpperCase();
+  bar.classList.add("show");
+  bar.classList.remove("shielded");
+  updateBossBar();
+}
+
+function hideBossBar() {
+  const bar = document.getElementById("bossBar");
+  bar.classList.remove("show", "shielded");
+  stopBossMusic();
+}
+
+function updateBossBar() {
+  const boss = State.activeBoss;
+  if (!boss) return;
+  const ratio = Math.max(0, boss.hp / boss.maxHp);
+  document.getElementById("bossFill").style.width = (ratio * 100) + "%";
+  document.getElementById("bossHpText").textContent =
+    Math.max(0, Math.ceil(boss.hp)) + " / " + boss.maxHp;
+  const bar = document.getElementById("bossBar");
+  bar.classList.toggle("shielded", !!boss.shielded);
+}
+
+/* ============================================================
+   MÚSICA TENSA DE BOSS — drone grave em loop
+   ============================================================ */
+function startBossMusic() {
+  if (Sound.muted || !Sound.ctx || State.bossMusicPlaying) return;
+  const c = Sound.ctx;
+  const node = {};
+  node.osc1 = c.createOscillator(); node.osc1.type = "sawtooth"; node.osc1.frequency.value = 55;
+  node.osc2 = c.createOscillator(); node.osc2.type = "sine";     node.osc2.frequency.value = 41.2;
+  node.lfo  = c.createOscillator(); node.lfo.type  = "sine";     node.lfo.frequency.value = 0.45;
+  node.lfoGain = c.createGain(); node.lfoGain.gain.value = 0.05;
+  node.gain = c.createGain(); node.gain.gain.value = 0.0;
+  node.gain.gain.linearRampToValueAtTime(0.12, c.currentTime + 1.2);
+  node.filter = c.createBiquadFilter(); node.filter.type = "lowpass"; node.filter.frequency.value = 240;
+
+  node.lfo.connect(node.lfoGain).connect(node.gain.gain);
+  node.osc1.connect(node.filter);
+  node.osc2.connect(node.filter);
+  node.filter.connect(node.gain).connect(c.destination);
+
+  const t = c.currentTime;
+  node.osc1.start(t); node.osc2.start(t); node.lfo.start(t);
+  Sound._bossMusic = node;
+  State.bossMusicPlaying = true;
+}
+
+function stopBossMusic() {
+  const n = Sound._bossMusic;
+  if (!n || !Sound.ctx) { State.bossMusicPlaying = false; return; }
+  const c = Sound.ctx, t = c.currentTime;
+  try {
+    n.gain.gain.cancelScheduledValues(t);
+    n.gain.gain.setValueAtTime(n.gain.gain.value, t);
+    n.gain.gain.linearRampToValueAtTime(0.0001, t + 0.6);
+    n.osc1.stop(t + 0.7); n.osc2.stop(t + 0.7); n.lfo.stop(t + 0.7);
+  } catch(_) {}
+  Sound._bossMusic = null;
+  State.bossMusicPlaying = false;
+}
+
+function spawnEnemy(entry) {
+  const td    = ENEMY_TYPES[entry.typeId];
+  const start = State.pathPoints[0];
+  const enemy = {
+    typeDef: td, typeId: entry.typeId,
+    x: start.x, y: start.y,
+    hp: entry.hp, maxHp: entry.hp,
+    speed: entry.speed, baseSpeed: entry.speed, reward: entry.reward,
+    radius: td.radiusBase,
+    pathIndex: 0, dead: false,
+    slowTimer: 0, slowFactor: 1.0,
+    /* buff de velocidade (Frizzo) */
+    buffTimer: 0, buffMult: 1.0,
+    /* Healer cooldown */
+    healCooldown: td.healInterval || 0,
+    /* Boss state */
+    isBoss: !!td.isBoss,
+    /* Madaro: estado do escudo */
+    shielded: false,
+    /* Frizzo: cooldown da aura de buff */
+    buffEmitCooldown: td.buffInterval || 0
+  };
+  State.enemies.push(enemy);
+  if (enemy.isBoss) {
+    State.activeBoss = enemy;
+    showBossBar(enemy);
+  }
+}
+
+function updateEnemies() {
+  for (const e of State.enemies) {
+    if (e.dead) continue;
+
+    /* Slow timer */
+    if (e.slowTimer > 0) { e.slowTimer--; if (e.slowTimer <= 0) e.slowFactor = 1.0; }
+
+    /* Buff de velocidade do Frizzo (em inimigos comuns) */
+    if (e.buffTimer > 0) { e.buffTimer--; if (e.buffTimer <= 0) e.buffMult = 1.0; }
+
+    /* ─── HEALER: cura inimigos por perto ─── */
+    if (e.typeId === "healer") {
+      e.healCooldown--;
+      if (e.healCooldown <= 0) {
+        e.healCooldown = e.typeDef.healInterval;
+        const range = e.typeDef.healRange, amt = e.typeDef.healAmount;
+        let healed = false;
+        for (const other of State.enemies) {
+          if (other.dead || other === e) continue;
+          if (Math.hypot(other.x - e.x, other.y - e.y) <= range && other.hp < other.maxHp) {
+            other.hp = Math.min(other.maxHp, other.hp + amt);
+            healed = true;
+          }
+        }
+        if (healed) {
+          State.effects.push({
+            type: "healPulse", x: e.x, y: e.y, maxRadius: range,
+            life: 28, maxLife: 28
+          });
+        }
+      }
+    }
+
+    /* ─── FRIZZO: aura de buff a cada 5s ─── */
+    if (e.typeId === "frizzo") {
+      e.buffEmitCooldown--;
+      if (e.buffEmitCooldown <= 0) {
+        e.buffEmitCooldown = e.typeDef.buffInterval;
+        const range = e.typeDef.buffRange;
+        for (const other of State.enemies) {
+          if (other.dead || other === e || other.isBoss) continue;
+          if (Math.hypot(other.x - e.x, other.y - e.y) <= range) {
+            other.buffMult  = e.typeDef.buffSpeedMult;
+            other.buffTimer = e.typeDef.buffDuration;
+          }
+        }
+        State.effects.push({
+          type: "buffPulse", x: e.x, y: e.y, maxRadius: range,
+          life: 32, maxLife: 32
+        });
+      }
+    }
+
+    /* ─── MADARO: ativa escudo abaixo de 50% HP ─── */
+    if (e.typeId === "madaro") {
+      const shouldShield = e.hp / e.maxHp <= e.typeDef.shieldThreshold;
+      if (shouldShield && !e.shielded) {
+        e.shielded = true;
+        Sound.explosion(false);
+        if (typeof updateBossBar === "function") updateBossBar();
+      }
+    }
+
+    /* Movimento */
+    const target = State.pathPoints[e.pathIndex + 1];
+    if (!target) {
+      e.dead = true;
+      /* Bosses tiram mais vidas */
+      State.lives = Math.max(0, State.lives - (e.isBoss ? 10 : 1));
+      updateHUD();
+      if (State.lives <= 0) triggerGameOver();
+      continue;
+    }
+    const spd = e.speed * e.slowFactor * e.buffMult;
+    const dx = target.x - e.x, dy = target.y - e.y;
+    const d  = Math.hypot(dx, dy);
+    if (d < spd) { e.x = target.x; e.y = target.y; e.pathIndex++; }
+    else         { e.x += dx/d * spd; e.y += dy/d * spd; }
+  }
+
+  /* Limpa mortos — se o boss morreu, esconde a barra */
+  const before = State.enemies.length;
+  State.enemies = State.enemies.filter(e => !e.dead);
+  if (State.activeBoss && State.activeBoss.dead) {
+    hideBossBar();
+    State.activeBoss = null;
+  }
+  if (before !== State.enemies.length && State.activeBoss) updateBossBar();
+}
+
+/* ─── Dano com modificadores (escudo do Madaro + escudo do Escudeiro) ─── */
+function applyDamage(enemy, rawDmg, attackType, sourceColor, sourceTower) {
+  if (enemy.dead) return;
+  let dmg = rawDmg;
+
+  /* Madaro com escudo: imune a dano físico (slash) */
+  if (enemy.typeId === "madaro" && enemy.shielded && attackType === "slash") {
+    dmg = 0;
+    State.effects.push({
+      type: "blockText", x: enemy.x, y: enemy.y - enemy.radius - 14,
+      text: "IMUNE", color: "#88ddff",
+      life: 28, maxLife: 28
+    });
+  }
+
+  /* Escudeiro vivo perto e à frente reduz dano em 50% */
+  if (dmg > 0 && enemy.typeId !== "shield") {
+    const shielder = findShieldProtector(enemy);
+    if (shielder) {
+      dmg = dmg * (1 - shielder.typeDef.shieldReduction);
+    }
+  }
+
+  const dealt = Math.min(dmg, Math.max(0, enemy.hp));
+  enemy.hp -= dmg;
+
+  /* Estatísticas */
+  if (dealt > 0) {
+    State.stats.totalDamage += dealt;
+    if (sourceTower) {
+      const uid = sourceTower.uid;
+      const entry = State.stats.towerDamage[uid] || (State.stats.towerDamage[uid] = {
+        name: sourceTower.type.name, typeId: sourceTower.type.id,
+        damage: 0, level: sourceTower.level, alive: true
+      });
+      entry.damage += dealt;
+      entry.level = sourceTower.level;
+      entry.alive = true;
+    }
+  }
+
+  /* Faíscas de impacto — só com cor de torre conhecida e dano > 0 */
+  if (dmg > 0 && sourceColor) {
+    /* Hit normal: faíscas pequenas. Em "crítico" (20% chance) faíscas maiores. */
+    const crit = Math.random() < 0.2;
+    FX.burst(enemy.x, enemy.y,
+      sourceColor,
+      crit ? 9 : 4,
+      crit ? 3.5 : 2.2,
+      crit ? 32 : 18
+    );
+  }
+
+  if (enemy.hp <= 0) {
+    /* Burst maior na morte com a cor da fonte (ou branco se desconhecida) */
+    FX.burst(enemy.x, enemy.y, sourceColor || "#ffffff", 16, 4, 36);
+    /* Confete em cor do tipo do inimigo também */
+    FX.burst(enemy.x, enemy.y, enemy.typeDef.color, 10, 3.2, 28);
+    killEnemy(enemy);
+  }
+  if (enemy === State.activeBoss) updateBossBar();
+}
+
+/* Acha um escudeiro vivo à frente do inimigo no caminho, dentro do alcance */
+function findShieldProtector(enemy) {
+  for (const s of State.enemies) {
+    if (s.dead || s.typeId !== "shield" || s === enemy) continue;
+    /* Escudeiro deve estar mais à frente no caminho */
+    if (s.pathIndex < enemy.pathIndex) continue;
+    if (s.pathIndex === enemy.pathIndex) {
+      /* mesmo segmento — escudeiro precisa estar mais perto do próximo waypoint */
+      const target = State.pathPoints[enemy.pathIndex + 1];
+      if (!target) continue;
+      const dE = Math.hypot(target.x - enemy.x, target.y - enemy.y);
+      const dS = Math.hypot(target.x - s.x, target.y - s.y);
+      if (dS >= dE) continue;
+    }
+    if (Math.hypot(s.x - enemy.x, s.y - enemy.y) <= s.typeDef.shieldRange) return s;
+  }
+  return null;
+}
+
+/* ============================================================
+   LÓGICA DAS TORRES
+   ============================================================ */
+function updateTowers() {
+  computeSynergies();
+  for (const tower of State.towers) {
+    if (tower.cooldown > 0) tower.cooldown--;
+
+    const effRange = tower.range * tower.synergyRangeMult;
+
+    /* Mira: prioriza o inimigo mais próximo de chegar ao fim */
+    let best = null, bestProg = -1;
+    for (const e of State.enemies) {
+      if (Math.hypot(e.x - tower.x, e.y - tower.y) <= effRange) {
+        const prog = e.pathIndex + 0.0001 * (e.x + e.y);
+        if (prog > bestProg) { bestProg = prog; best = e; }
+      }
+    }
+    tower.target = best;
+
+    if (best) {
+      tower.angle = Math.atan2(best.y - tower.y, best.x - tower.x);
+      if (tower.cooldown <= 0) {
+        attackWithTower(tower, best);
+        tower.cooldown = Math.max(4, Math.round(tower.fireRate * tower.synergyFireMult));
+      }
+    }
+  }
+}
+
+/* ============================================================
+   SISTEMA DE SINERGIA
+   - Gaku + Zuro: se os alcances se sobrepõem, +15% velocidade de ataque (ambos)
+   - Naru + Saky: se próximos, +20% de alcance no Naru
+   ============================================================ */
+function computeSynergies() {
+  /* Reset */
+  for (const t of State.towers) {
+    t.synergyFireMult = 1.0;
+    t.synergyRangeMult = 1.0;
+  }
+  State.synergyLinks = [];
+
+  /* Gaku ↔ Zuro: alcances se sobrepondo */
+  const gakus = State.towers.filter(t => t.type.id === "gaku");
+  const zuros = State.towers.filter(t => t.type.id === "zuro");
+  for (const g of gakus) {
+    for (const z of zuros) {
+      const d = Math.hypot(g.x - z.x, g.y - z.y);
+      if (d <= g.range + z.range) {
+        /* +15% velocidade de ataque (reduz cooldown em 15%) */
+        g.synergyFireMult = Math.min(g.synergyFireMult, 0.85);
+        z.synergyFireMult = Math.min(z.synergyFireMult, 0.85);
+        State.synergyLinks.push({
+          a: g, b: z, color: "#5dd0ff", type: "fire"
+        });
+      }
+    }
+  }
+
+  /* Naru ↔ Saky: próximos (alcances sobrepostos também) */
+  const narus = State.towers.filter(t => t.type.id === "naru");
+  const sakys = State.towers.filter(t => t.type.id === "saky");
+  for (const n of narus) {
+    for (const s of sakys) {
+      const d = Math.hypot(n.x - s.x, n.y - s.y);
+      if (d <= n.range + s.range) {
+        /* +20% alcance no Naru */
+        n.synergyRangeMult = Math.max(n.synergyRangeMult, 1.20);
+        State.synergyLinks.push({
+          a: n, b: s, color: "#ff88cc", type: "range"
+        });
+      }
+    }
+  }
+}
+
+function drawSynergyLinks(ctx) {
+  if (!State.synergyLinks.length) return;
+  ctx.save();
+  const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 220);
+  for (const link of State.synergyLinks) {
+    ctx.strokeStyle = link.color;
+    ctx.globalAlpha = 0.35 + 0.35 * pulse;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 5]);
+    ctx.lineDashOffset = -(Date.now() / 50) % 11;
+    ctx.shadowColor = link.color; ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.moveTo(link.a.x, link.a.y - 8);
+    ctx.lineTo(link.b.x, link.b.y - 8);
+    ctx.stroke();
+    /* Pequenos diamantes nas extremidades */
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 0.85;
+    for (const t of [link.a, link.b]) {
+      ctx.fillStyle = link.color;
+      ctx.beginPath();
+      ctx.moveTo(t.x,     t.y - 14);
+      ctx.lineTo(t.x + 3, t.y - 10);
+      ctx.lineTo(t.x,     t.y - 6);
+      ctx.lineTo(t.x - 3, t.y - 10);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+  }
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+/* Retorna o ponto de origem do ataque (mão do personagem).
+   Para o Gaku, a mão estendida segue o ângulo de mira. */
+function getTowerHandPos(tower) {
+  if (tower.type.id === "gaku") {
+    const dist = 16;
+    return { x: tower.x + Math.cos(tower.angle) * dist,
+             y: tower.y + Math.sin(tower.angle) * dist };
+  }
+  return { x: tower.x, y: tower.y };
+}
+
+function attackWithTower(tower, target) {
+  const at  = tower.type.attackType;
+  const dmg = Math.round(tower.damage * State.globalDamageMultiplier);
+  const pColor = TOWER_PARTICLE_COLOR[tower.type.id] || "#ffffff";
+
+  if (at === "beam") {
+    Sound.laser();
+    const hand = getTowerHandPos(tower);
+    applyDamage(target, dmg, "beam", pColor, tower);
+    State.effects.push({
+      type: "beam",
+      x1: hand.x, y1: hand.y, x2: target.x, y2: target.y,
+      color: tower.beamColor, width: tower.beamWidth,
+      life: tower.type.beamDuration, maxLife: tower.type.beamDuration
+    });
+
+  } else if (at === "slash") {
+    Sound.slash();
+    for (const e of State.enemies) {
+      if (Math.hypot(e.x - tower.x, e.y - tower.y) <= tower.range) {
+        applyDamage(e, dmg, "slash", pColor, tower);
+      }
+    }
+    State.effects.push({
+      type: "slash",
+      x: tower.x, y: tower.y, radius: tower.range,
+      color: tower.slashColor, slashCount: tower.slashCount,
+      life: tower.type.slashDuration, maxLife: tower.type.slashDuration,
+      angle: Math.random() * Math.PI
+    });
+
+  } else if (at === "slam") {
+    Sound.explosion(false);
+    for (const e of State.enemies) {
+      if (Math.hypot(e.x - tower.x, e.y - tower.y) <= tower.range) {
+        applyDamage(e, dmg, "slam", pColor, tower);
+        e.slowTimer  = tower.slowDuration;
+        e.slowFactor = 0.6;
+      }
+    }
+    State.effects.push({
+      type: "slam",
+      x: tower.x, y: tower.y, maxRadius: tower.range,
+      color: tower.type.slamColor || "#ff88ff",
+      life: tower.type.slamDuration || 35,
+      maxLife: tower.type.slamDuration || 35
+    });
+
+  } else if (at === "projectile") {
+    State.projectiles.push({
+      x: tower.x, y: tower.y, target,
+      speed: tower.type.projectileSpeed || 6,
+      damage: dmg, color: tower.beamColor || "#fff",
+      radius: 5, dead: false
+    });
+
+  } else if (at === "stretch") {
+    /* Luffo — soco-borracha: linha estendida + dano em AoE no alvo + knockback */
+    Sound.slash();
+    State.effects.push({
+      type: "stretch",
+      x1: tower.x, y1: tower.y - 2,
+      x2: target.x, y2: target.y,
+      color: tower.stretchColor || "#f5d6b0",
+      width: tower.stretchWidth || 5,
+      life: 14, maxLife: 14
+    });
+    /* Dano em área no ponto de impacto */
+    for (const e of State.enemies) {
+      if (e.dead) continue;
+      if (Math.hypot(e.x - target.x, e.y - target.y) <= tower.aoeRadius) {
+        applyDamage(e, dmg, "slam", pColor, tower);
+        if (!e.dead && Math.random() < tower.knockbackChance) {
+          pushBackEnemy(e, tower.knockbackDistance);
+          FX.burst(e.x, e.y, "#ffffff", 6, 2.5, 18);
+        }
+      }
+    }
+
+  } else if (at === "bounceProjectile") {
+    /* Naru — Energy Shuriken que rebate */
+    Sound.slash();
+    State.projectiles.push({
+      x: tower.x, y: tower.y, target,
+      speed: tower.projSpeed,
+      damage: dmg, color: tower.projColor,
+      radius: 6, dead: false,
+      bouncesLeft: tower.bounceCount,
+      bounceRange: tower.bounceRange,
+      hitEnemies: new Set(),
+      spin: 0,
+      sourceColor: pColor,
+      sourceTowerUid: tower.uid
+    });
+  }
+}
+
+/* ─── Empurrar inimigo de volta no caminho (Luffo) ─── */
+function pushBackEnemy(enemy, distance) {
+  if (enemy.isBoss) return; // bosses não levam knockback
+  let remaining = distance;
+  let safety = 6;
+  while (remaining > 0 && safety-- > 0) {
+    const prev = State.pathPoints[enemy.pathIndex];
+    if (!prev) return;
+    const dx = prev.x - enemy.x, dy = prev.y - enemy.y;
+    const d  = Math.hypot(dx, dy);
+    if (d >= remaining) {
+      enemy.x += (dx / (d || 1)) * remaining;
+      enemy.y += (dy / (d || 1)) * remaining;
+      return;
+    }
+    /* Chegou ao waypoint anterior — recua para o segmento anterior */
+    enemy.x = prev.x; enemy.y = prev.y;
+    if (enemy.pathIndex === 0) return; // não passa do início
+    enemy.pathIndex--;
+    remaining -= d;
+  }
+}
+
+function killEnemy(e) {
+  if (e.dead) return;
+  e.dead = true;
+  State.gold += e.reward;
+  State.stats.goldCollected += e.reward;
+  State.stats.enemiesKilled++;
+  /* Bosses sempre dropam um item + tremor de tela + explosão grande */
+  if (e.isBoss) {
+    dropItemAt(e.x, e.y);
+    Sound.explosion(true);
+    FX.shakeScreen(14, 24);
+    /* Explosão massiva de partículas */
+    for (let i = 0; i < 6; i++) {
+      FX.burst(
+        e.x + (Math.random() - 0.5) * e.radius,
+        e.y + (Math.random() - 0.5) * e.radius,
+        i % 2 === 0 ? "#ffd166" : (e.typeDef.color || "#ffffff"),
+        18, 5, 50
+      );
+    }
+  }
+  updateHUD();
+}
+
+/* ============================================================
+   ULTIMATE — Invocar Dragão Divino
+   ============================================================ */
+function fireUltimate() {
+  if (State.ultimateCooldown > 0) return;
+  if (State.gameOver || State.victory) return;
+
+  Sound.explosion(true);
+  /* Screen shake forte */
+  FX.shakeScreen(16, 28);
+  const baseDmg = 300;
+  const dmg = Math.round(baseDmg * State.globalDamageMultiplier);
+  /* O Dragão Divino é energia pura — passa pelo escudo físico do Madaro */
+  for (const e of State.enemies) {
+    if (e.dead) continue;
+    applyDamage(e, dmg, "beam", "#ffcc00");
+  }
+
+  /* Feixes verticais em vários pontos do canvas */
+  const positions = [
+    State.canvas.width * 0.2,
+    State.canvas.width * 0.5,
+    State.canvas.width * 0.8
+  ];
+  for (const bx of positions) {
+    State.effects.push({
+      type: "dragon", x: bx,
+      life: 60, maxLife: 60
+    });
+  }
+
+  State.ultimateCooldown = State.ultimateMaxCooldown;
+  updateUltimateBar();
+}
+
+function updateUltimateBar() {
+  const pct = State.ultimateCooldown <= 0
+    ? 100
+    : Math.round((1 - State.ultimateCooldown / State.ultimateMaxCooldown) * 100);
+  const bar = document.getElementById("ultBar");
+  const btn = document.getElementById("ultimateBtn");
+  if (!bar || !btn) return;
+  bar.style.width = pct + "%";
+  btn.disabled = State.ultimateCooldown > 0;
+  btn.textContent = State.ultimateCooldown > 0
+    ? `🐉 ${Math.ceil(State.ultimateCooldown / 60)}s`
+    : "🐉 Invocar Dragão";
+}
+
+function updateProjectiles() {
+  for (const p of State.projectiles) {
+    if (p.spin !== undefined) p.spin += 0.45;
+
+    /* Se o alvo morreu antes do impacto, tenta achar outro próximo se for rebote */
+    if (!p.target || p.target.dead) {
+      if (p.bouncesLeft > 0) {
+        const next = findBounceTarget(p, p.x, p.y);
+        if (next) { p.target = next; }
+        else { p.dead = true; continue; }
+      } else {
+        p.dead = true; continue;
+      }
+    }
+
+    const dx = p.target.x - p.x, dy = p.target.y - p.y;
+    const d  = Math.hypot(dx, dy);
+
+    if (d < p.speed) {
+      /* Impacto */
+      const tgt = p.target;
+      const srcTower = p.sourceTowerUid
+        ? State.towers.find(t => t.uid === p.sourceTowerUid) : null;
+      applyDamage(tgt, p.damage, "projectile", p.sourceColor || p.color, srcTower);
+      if (p.hitEnemies) p.hitEnemies.add(tgt);
+
+      /* Rebote */
+      if (p.bouncesLeft && p.bouncesLeft > 0) {
+        const next = findBounceTarget(p, tgt.x, tgt.y);
+        if (next) {
+          p.x = tgt.x; p.y = tgt.y;
+          p.target = next;
+          p.bouncesLeft--;
+          /* Faísca pequena no ponto de rebote */
+          FX.burst(tgt.x, tgt.y, p.color, 6, 2.5, 18);
+          continue;
+        }
+      }
+      p.dead = true;
+    } else {
+      p.x += dx/d * p.speed;
+      p.y += dy/d * p.speed;
+    }
+  }
+  State.projectiles = State.projectiles.filter(p => !p.dead);
+}
+
+function findBounceTarget(p, fromX, fromY) {
+  let best = null, bestDist = Infinity;
+  for (const e of State.enemies) {
+    if (e.dead) continue;
+    if (p.hitEnemies && p.hitEnemies.has(e)) continue;
+    const d = Math.hypot(e.x - fromX, e.y - fromY);
+    if (d <= p.bounceRange && d < bestDist) { bestDist = d; best = e; }
+  }
+  return best;
+}
+
+function updateEffects() {
+  for (const ef of State.effects) ef.life--;
+  State.effects = State.effects.filter(ef => ef.life > 0);
+}
+
+/* ============================================================
+   FIM DE ONDA / GAME OVER / VITÓRIA
+   ============================================================ */
+function checkWaveEnd() {
+  if (State.inWave && State.spawnIdx >= State.spawnList.length && State.enemies.length === 0) {
+    State.inWave = false;
+    State.gold += 90; // bônus de sobrevivência (boost p/ acompanhar HP maior)
+    State.stats.goldCollected += 90;
+    updateBestWave();
+    /* No modo infinito, gera a próxima onda sob demanda */
+    if (State.endlessMode) {
+      appendEndlessWave();
+    } else if (State.waveIndex >= CONFIG.totalWaves) {
+      triggerVictory();
+    }
+    updateHUD();
+  }
+}
+
+function awardPoints(bonus) {
+  const earned = State.waveIndex * 10 + bonus;
+  State.talentPoints += earned;
+  saveProgress();
+  return earned;
+}
+
+function triggerGameOver() {
+  if (State.gameOver) return;
+  State.gameOver = true; State.inWave = false;
+  stopBossMusic(); hideBossBar();
+  updateBestWave();
+  document.getElementById("endlessBtn").style.display = "none";
+  document.getElementById("endEndlessBtn").classList.remove("show");
+  const earned = awardPoints(0);
+  const ov = document.getElementById("overlay");
+  ov.classList.remove("win"); ov.classList.add("show");
+  document.getElementById("overlayTitle").textContent = "GAME OVER";
+  document.getElementById("overlayMsg").textContent =
+    `Você resistiu ${State.waveIndex} onda(s). +${earned} pontos de talento!`;
+  showStatsPanel();
+}
+
+function triggerVictory() {
+  if (State.victory) return;
+  State.victory = true; State.inWave = false;
+  stopBossMusic(); hideBossBar();
+  updateBestWave();
+  const earned = awardPoints(100);
+  const ov = document.getElementById("overlay");
+  ov.classList.add("win", "show");
+  document.getElementById("overlayTitle").textContent = "VITÓRIA!";
+  document.getElementById("overlayMsg").textContent =
+    `Incrível! Todas as 20 ondas derrotadas! +${earned} pontos de talento. Quer ir além?`;
+  /* Mostra o botão do Modo Infinito */
+  document.getElementById("endlessBtn").style.display = "inline-block";
+  showStatsPanel();
+}
+
+function restartGame() {
+  Object.assign(State, {
+    gold: CONFIG.startGold + State.startGoldBonus,
+    lives: CONFIG.startLives,
+    waveIndex: 0, inWave: false,
+    spawnList: [], spawnIdx: 0, spawnTimer: 0,
+    enemies: [], towers: [], projectiles: [], effects: [],
+    selectedTowerType: null, selectedTower: null,
+    gameOver: false, victory: false,
+    ultimateCooldown: 0,
+    activeBoss: null,
+    inventory: [], selectedItemSlot: null, droppedItems: [],
+    endlessMode: false,
+    stats: { totalDamage: 0, enemiesKilled: 0, goldCollected: 0, towerDamage: {} },
+    synergyLinks: []
+  });
+  hideStatsPanel();
+  document.getElementById("endEndlessBtn").classList.remove("show");
+  FX.particles.length = 0;
+  FX.shake.time = 0; FX.shake.offsetX = FX.shake.offsetY = 0;
+  CONFIG.totalWaves = 20;
+  buildGrid();
+  State.waves = generateWaves(CONFIG.totalWaves);
+  hideInspect();
+  hideBossBar();
+  renderInventory();
+  document.getElementById("overlay").classList.remove("show", "win");
+  document.getElementById("endlessBtn").style.display = "none";
+  document.getElementById("bossAlert").classList.remove("show");
+  updateUltimateBar();
+  updateHUD();
+  showMenu();
+}
+
+/* ============================================================
+   LOOP PRINCIPAL
+   ============================================================ */
+function loop() {
+  if (!State.gameOver && !State.victory) {
+    if (State.inWave) {
+      State.spawnTimer--;
+      if (State.spawnIdx < State.spawnList.length && State.spawnTimer <= 0) {
+        spawnEnemy(State.spawnList[State.spawnIdx]);
+        State.spawnIdx++;
+        if (State.spawnIdx < State.spawnList.length)
+          State.spawnTimer = State.spawnList[State.spawnIdx].interval;
+      }
+    }
+    if (State.ultimateCooldown > 0) {
+      State.ultimateCooldown--;
+      updateUltimateBar();
+    }
+    updateEnemies();
+    updateTowers();
+    updateProjectiles();
+    updateEffects();
+    updateDroppedItems();
+    checkWaveEnd();
+  }
+  FX.update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+/* ============================================================
+   RENDERIZAÇÃO
+   ============================================================ */
+function draw() {
+  const ctx = State.ctx;
+  ctx.clearRect(0, 0, State.canvas.width, State.canvas.height);
+
+  /* Screen shake — desloca todo o conteúdo */
+  ctx.save();
+  if (FX.shake.time > 0) ctx.translate(FX.shake.offsetX, FX.shake.offsetY);
+
+  drawGrid(ctx);
+  drawPath(ctx);
+  drawSynergyLinks(ctx);
+  drawTowers(ctx);
+  drawEnemies(ctx);
+  drawProjectiles(ctx);
+  drawEffects(ctx);
+  FX.drawParticles(ctx);
+  drawDroppedItems(ctx);
+
+  /* Camada de iluminação (dia/entardecer/noite) */
+  drawLightingOverlay(ctx);
+
+  drawPlacementPreview(ctx);
+  drawSelectedRange(ctx);
+  drawEquipHover(ctx);
+
+  ctx.restore();
+}
+
+/* ── Overlay de iluminação dia/noite ── */
+function drawLightingOverlay(ctx) {
+  const w = State.canvas.width, h = State.canvas.height;
+  const phase = getLightingPhase();
+  if (phase === "day") return;
+
+  const night = getNightAmount();
+
+  /* Tinge a cena */
+  if (phase === "sunset") {
+    /* Gradiente alaranjado (céu → chão) */
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, `rgba(255, 130, 60, ${0.18 + night*0.10})`);
+    g.addColorStop(1, `rgba(160, 60, 90, ${0.10 + night*0.08})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+  } else if (phase === "night") {
+    /* Camada azul-noite escura */
+    ctx.fillStyle = "rgba(8, 14, 38, 0.55)";
+    ctx.fillRect(0, 0, w, h);
+
+    /* "Lanternas" — luz aditiva ao redor de cada torre */
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const t of State.towers) {
+      const lightRadius = t.range * 0.95;
+      const g = ctx.createRadialGradient(t.x, t.y, 8, t.x, t.y, lightRadius);
+      g.addColorStop(0,    "rgba(220, 230, 255, 0.32)");
+      g.addColorStop(0.45, "rgba(140, 180, 255, 0.16)");
+      g.addColorStop(1,    "rgba(60, 100, 220, 0)");
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(t.x, t.y, lightRadius, 0, Math.PI * 2); ctx.fill();
+    }
+    /* Luz suave do início e fim do caminho */
+    const s = State.pathPoints[0], e = State.pathPoints.at(-1);
+    for (const p of [s, e]) {
+      const g = ctx.createRadialGradient(p.x, p.y, 4, p.x, p.y, 70);
+      g.addColorStop(0, "rgba(180, 200, 255, 0.22)");
+      g.addColorStop(1, "rgba(180, 200, 255, 0)");
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 70, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+
+    /* Estrelas estáticas baseadas em hash do canvas */
+    ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+    for (let i = 0; i < 30; i++) {
+      const x = (i * 197) % w;
+      const y = (i * 113) % (h * 0.55);
+      const size = (i % 3 === 0) ? 1.4 : 0.8;
+      const twinkle = 0.5 + 0.5 * Math.sin(Date.now() / 600 + i);
+      ctx.globalAlpha = 0.3 + 0.5 * twinkle;
+      ctx.fillRect(x, y, size, size);
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+/* ── Itens dropados no chão ── */
+function drawDroppedItems(ctx) {
+  for (const d of State.droppedItems) {
+    const item = ITEM_TYPES[d.itemId];
+    const bobY = Math.sin(d.bob) * 4;
+    const x = d.x, y = d.y + bobY;
+    /* Pisca quando está prestes a sumir (últimos 5s) */
+    const blink = d.life < 300 && Math.floor(d.life / 8) % 2 === 0;
+    if (blink) continue;
+
+    /* Brilho */
+    const pulse = 0.55 + 0.45 * Math.sin(d.bob * 2);
+    const g = ctx.createRadialGradient(x, y, 1, x, y, 28);
+    g.addColorStop(0, item.color.replace(")", `,${0.7*pulse})`).replace("rgb", "rgba"));
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    /* Fallback se cor for hex */
+    ctx.fillStyle = item.color + "66";
+    ctx.beginPath(); ctx.arc(x, y, 22, 0, Math.PI*2); ctx.fill();
+
+    /* Quadrado brilhante */
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.sin(d.bob * 0.5) * 0.15);
+    ctx.fillStyle = item.color;
+    ctx.shadowColor = item.color; ctx.shadowBlur = 18;
+    ctx.fillRect(-9, -9, 18, 18);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillRect(-7, -7, 14, 4);
+    ctx.restore();
+
+    /* Ícone do item */
+    ctx.font = "bold 14px Segoe UI";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#fff";
+    ctx.fillText(item.icon, x, y + 5);
+    ctx.textAlign = "left";
+  }
+}
+
+/* ── Hover quando equipando ── */
+function drawEquipHover(ctx) {
+  if (State.selectedItemSlot === null) return;
+  const cell = State.hoverCell;
+  if (!cell) return;
+  const tower = State.towers.find(t => t.col === cell.col && t.row === cell.row);
+  if (!tower) return;
+  ctx.strokeStyle = "#5dd0ff"; ctx.lineWidth = 2.5;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.arc(tower.x, tower.y - 2, 30, 0, Math.PI*2); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+/* ── Mapa ── */
+function drawGrid(ctx) {
+  const ts = CONFIG.tileSize;
+  for (let r = 0; r < CONFIG.rows; r++) {
+    for (let c = 0; c < CONFIG.cols; c++) {
+      if (State.grid[r][c] === 1) continue;
+      ctx.fillStyle = (r + c) % 2 === 0 ? "#1b2c1f" : "#1f3326";
+      ctx.fillRect(c*ts, r*ts, ts, ts);
+    }
+  }
+  ctx.strokeStyle = "rgba(255,255,255,0.03)"; ctx.lineWidth = 1;
+  for (let c = 0; c <= CONFIG.cols; c++) {
+    ctx.beginPath(); ctx.moveTo(c*ts, 0); ctx.lineTo(c*ts, CONFIG.rows*ts); ctx.stroke();
+  }
+  for (let r = 0; r <= CONFIG.rows; r++) {
+    ctx.beginPath(); ctx.moveTo(0, r*ts); ctx.lineTo(CONFIG.cols*ts, r*ts); ctx.stroke();
+  }
+}
+
+function drawPath(ctx) {
+  const ts = CONFIG.tileSize;
+  for (let r = 0; r < CONFIG.rows; r++) {
+    for (let c = 0; c < CONFIG.cols; c++) {
+      if (State.grid[r][c] !== 1) continue;
+      ctx.fillStyle = "#3d3024";
+      ctx.fillRect(c*ts, r*ts, ts, ts);
+      ctx.fillStyle = "rgba(0,0,0,0.12)";
+      ctx.fillRect(c*ts+3, r*ts+3, ts-6, ts-6);
+    }
+  }
+  ctx.strokeStyle = "rgba(255,209,102,0.35)"; ctx.lineWidth = 2;
+  ctx.setLineDash([8, 8]);
+  ctx.beginPath();
+  State.pathPoints.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+  ctx.stroke(); ctx.setLineDash([]);
+
+  const s = State.pathPoints[0], e = State.pathPoints.at(-1);
+  ctx.fillStyle = "#5dd0ff"; ctx.beginPath(); ctx.arc(s.x, s.y, 9, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = "#ff6b6b"; ctx.beginPath(); ctx.arc(e.x, e.y, 9, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = "#fff"; ctx.font = "bold 9px Segoe UI"; ctx.textAlign = "center";
+  ctx.fillText("IN",  s.x, s.y + 3);
+  ctx.fillText("OUT", e.x, e.y + 3);
+  ctx.textAlign = "left";
+}
+
+/* ── Torres ── */
+function drawTowers(ctx) {
+  for (const t of State.towers) {
+    const sel = State.selectedTower === t;
+
+    /* Sombra elíptica no chão */
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    ctx.beginPath(); ctx.ellipse(t.x, t.y + 20, 17, 5, 0, 0, Math.PI*2); ctx.fill();
+
+    /* Halo de seleção tracejado */
+    if (sel) {
+      ctx.strokeStyle = "#ffd166"; ctx.lineWidth = 2.5;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath(); ctx.arc(t.x, t.y - 2, 27, 0, Math.PI*2); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    /* Desenho vetorial completo do personagem */
+    if      (t.type.id === "gaku")  drawGaku(ctx, t);
+    else if (t.type.id === "zuro")  drawZuro(ctx, t);
+    else if (t.type.id === "saky")  drawSaky(ctx, t);
+    else if (t.type.id === "luffo") drawLuffo(ctx, t);
+    else if (t.type.id === "naru")  drawNaru(ctx, t);
+    else                            drawGenericTower(ctx, t);
+
+    /* Indicadores de nível (bolinhas) */
+    const MAX_LV = 1 + t.type.upgrades.length;
+    for (let i = 0; i < MAX_LV; i++) {
+      ctx.fillStyle = i < t.level ? "#ffd166" : "#2a2a2a";
+      ctx.beginPath();
+      ctx.arc(t.x - (MAX_LV - 1) * 5 + i * 10, t.y + 27, 3.5, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+}
+
+/* ─────────────────────────────────────────────
+   GAKU — paródia de personagem de Dragon Ball
+   Gi laranja, cabelo espetado, Turbo Beam saindo
+   das mãos. Nível 3-4 = transformação dourada.
+   ───────────────────────────────────────────── */
+function drawGaku(ctx, t) {
+  const x = t.x, y = t.y;
+  const isMax  = t.level === 4;
+  const isSSJ  = t.level >= 3;
+
+  /* Paleta que evolui com os upgrades */
+  const hairColor  = isMax ? "#ffe600" : isSSJ ? "#ffaa00" : "#111";
+  const hairBorder = isMax ? "#bb8800" : isSSJ ? "#885500" : "#000";
+  const eyeColor   = isMax ? "#00ffcc" : "#222";
+
+  /* Centro da cabeça */
+  const hx = x, hy = y - 13;
+  const hr = 8;
+
+  /* ── Aura SSJ (nível MAX) ── */
+  if (isMax) {
+    const g = ctx.createRadialGradient(hx, hy - 6, 2, hx, hy - 6, 28);
+    g.addColorStop(0,   "rgba(255,255,160,0.55)");
+    g.addColorStop(0.5, "rgba(255,210,0,0.20)");
+    g.addColorStop(1,   "rgba(255,190,0,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.ellipse(hx, hy - 4, 21, 30, 0, 0, Math.PI*2); ctx.fill();
+  }
+
+  /* ── Picos de cabelo (atrás da cabeça) ── */
+  ctx.fillStyle   = hairColor;
+  ctx.strokeStyle = hairBorder;
+  ctx.lineWidth   = 0.9;
+  /* Cada entrada: [baseX, baseY, tipX, tipY] */
+  const gSpikes = [
+    [hx-12, hy-2,  hx-18, hy-9 ],
+    [hx-9,  hy-6,  hx-11, hy-21],
+    [hx-4,  hy-8,  hx-4,  hy-25],
+    [hx+1,  hy-9,  hx+2,  hy-26],
+    [hx+6,  hy-8,  hx+8,  hy-22],
+    [hx+10, hy-5,  hx+14, hy-17],
+    [hx+13, hy-2,  hx+19, hy-7 ],
+  ];
+  for (const [bx, by, tx, ty] of gSpikes) {
+    const hw = 2.8;
+    ctx.beginPath();
+    ctx.moveTo(bx - hw, by);
+    ctx.lineTo(tx, ty);
+    ctx.lineTo(bx + hw, by);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  /* Calota posterior — cobre a nuca */
+  ctx.fillStyle = hairColor;
+  ctx.beginPath();
+  ctx.arc(hx, hy + 1, hr + 2, Math.PI * 0.08, Math.PI * 0.92);
+  ctx.lineTo(hx - hr - 2, hy);
+  ctx.arc(hx, hy, hr + 2, Math.PI * 0.92, Math.PI * 0.08, false);
+  ctx.closePath(); ctx.fill();
+
+  /* ── Gi (corpo laranja) ── */
+  ctx.fillStyle = t.bodyColor;
+  ctx.beginPath(); ctx.roundRect(x - 9, y - 3, 18, 17, [1, 1, 4, 4]); ctx.fill();
+
+  /* Gola em V com detalhe branco interno */
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.moveTo(x, y - 3); ctx.lineTo(x - 5, y + 4); ctx.lineTo(x + 5, y + 4);
+  ctx.closePath(); ctx.fill();
+  /* Sobreposição do gi cobrindo laterais da gola */
+  ctx.fillStyle = t.bodyColor;
+  ctx.beginPath(); ctx.moveTo(x-9,y-3); ctx.lineTo(x-3,y-3); ctx.lineTo(x-5,y+3); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x+9,y-3); ctx.lineTo(x+3,y-3); ctx.lineTo(x+5,y+3); ctx.closePath(); ctx.fill();
+
+  /* Cinto azul escuro */
+  ctx.fillStyle = "#1a4499";
+  ctx.fillRect(x - 9, y + 7, 18, 5);
+
+  /* Calças */
+  ctx.fillStyle = "#224488";
+  ctx.fillRect(x - 8, y + 12, 7,  9);
+  ctx.fillRect(x + 1, y + 12, 7,  9);
+  ctx.strokeStyle = "#1a3366"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x, y+12); ctx.lineTo(x, y+21); ctx.stroke();
+
+  /* Sandálias */
+  ctx.fillStyle = "#3a2200";
+  ctx.fillRect(x - 9, y + 19, 9, 3);
+  ctx.fillRect(x + 0, y + 19, 9, 3);
+
+  /* ── Braço de ataque (rotaciona na direção do alvo) ── */
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(t.angle);
+  /* Braço */
+  ctx.fillStyle = t.bodyColor;
+  ctx.fillRect(5, -4, 15, 7);
+  /* Mão */
+  ctx.fillStyle = "#f5d6b0";
+  ctx.beginPath(); ctx.arc(20, 0, 4.5, 0, Math.PI*2); ctx.fill();
+  /* Glow de energia na mão (azul → dourado conforme nível) */
+  const chargeColor = isMax ? "rgba(255,220,0,0.7)" : isSSJ ? "rgba(255,180,0,0.6)" : "rgba(93,208,255,0.6)";
+  ctx.fillStyle = chargeColor;
+  ctx.beginPath(); ctx.arc(20, 0, 6, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  /* Braço de suporte (oposto, estático) */
+  ctx.fillStyle = t.bodyColor;
+  ctx.save();
+  ctx.translate(x, y + 2); ctx.rotate(t.angle + Math.PI);
+  ctx.fillRect(4, -3, 9, 6);
+  ctx.restore();
+
+  /* ── Cabeça / Rosto ── */
+  ctx.fillStyle = "#f5d6b0";
+  ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = "#d4a870"; ctx.lineWidth = 0.7;
+  ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI*2); ctx.stroke();
+
+  /* Franja — mechas do cabelo na frente da testa */
+  ctx.fillStyle = hairColor;
+  ctx.beginPath();
+  ctx.moveTo(hx - hr,     hy - 1);
+  ctx.lineTo(hx - hr + 1, hy - 6);
+  ctx.lineTo(hx - 5,      hy - 2);
+  ctx.lineTo(hx - 2,      hy - 9); /* pico esq */
+  ctx.lineTo(hx + 1,      hy - 3);
+  ctx.lineTo(hx + 5,      hy - 8); /* pico dir */
+  ctx.lineTo(hx + hr,     hy - 2);
+  ctx.lineTo(hx + hr,     hy - 0);
+  ctx.closePath(); ctx.fill();
+
+  /* ── Olhos ── */
+  ctx.lineCap = "round";
+  if (isMax) {
+    /* Teal brilhante — transformação */
+    ctx.fillStyle = "#00ffcc";
+    ctx.beginPath(); ctx.arc(hx-3.5, hy, 2.4, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(hx+3.5, hy, 2.4, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = "#004433";
+    ctx.beginPath(); ctx.arc(hx-3.5, hy, 1.1, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(hx+3.5, hy, 1.1, 0, Math.PI*2); ctx.fill();
+    /* Reflexo */
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.beginPath(); ctx.arc(hx-2.8, hy-0.7, 0.65, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(hx+4.2, hy-0.7, 0.65, 0, Math.PI*2); ctx.fill();
+  } else {
+    ctx.fillStyle = eyeColor;
+    ctx.fillRect(hx-5, hy-2, 3, 3.5);
+    ctx.fillRect(hx+2, hy-2, 3, 3.5);
+    ctx.fillStyle = "rgba(255,255,255,0.65)";
+    ctx.fillRect(hx-4.5, hy-2, 1, 1);
+    ctx.fillRect(hx+2.5, hy-2, 1, 1);
+  }
+
+  /* Sobrancelhas determinadas */
+  ctx.strokeStyle = isSSJ ? "#cc7700" : "#2a2a2a"; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(hx-6, hy-4); ctx.lineTo(hx-2.5, hy-5.5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(hx+2.5, hy-5.5); ctx.lineTo(hx+6, hy-4); ctx.stroke();
+
+  /* Nariz (traço simples) */
+  ctx.strokeStyle = "#c4956a"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(hx+0.5, hy+2); ctx.lineTo(hx+1, hy+4); ctx.stroke();
+
+  /* Boca — expressão determinada */
+  ctx.strokeStyle = "#8a5530"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(hx-2.5, hy+5.5); ctx.lineTo(hx+2.5, hy+5.5); ctx.stroke();
+}
+
+/* ─────────────────────────────────────────────
+   ZURO — paródia de espadachim de anime
+   Cabelo verde espetado, bandana preta, gi branco
+   + haramaki verde, 1-3 espadas conforme nível,
+   cicatriz no olho direito.
+   ───────────────────────────────────────────── */
+function drawZuro(ctx, t) {
+  const x = t.x, y = t.y;
+  const hx = x, hy = y - 13;
+  const hr = 8;
+  const numSwords  = Math.min(t.level, 3);
+  const swordColor = t.slashColor;
+
+  /* ── Espada nas costas (3ª espada, aparece no nível 3+) ── */
+  if (numSwords >= 3) {
+    ctx.save();
+    ctx.translate(x + 2, y + 1); ctx.rotate(-0.28);
+    /* Bainha */
+    ctx.fillStyle = "#332211";
+    ctx.fillRect(-2, -22, 5, 22);
+    /* Guarda */
+    ctx.fillStyle = swordColor;
+    ctx.fillRect(-5, -1, 11, 3);
+    /* Cabo */
+    ctx.fillStyle = "#446633";
+    ctx.fillRect(-1, -22, 4, 8);
+    /* Fio da lâmina */
+    ctx.strokeStyle = "#aabbaa"; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(1.5, -2); ctx.lineTo(1.5, -22); ctx.stroke();
+    ctx.restore();
+  }
+
+  /* ── Calças escuras ── */
+  ctx.fillStyle = "#1c2a3a";
+  ctx.fillRect(x - 8, y + 1, 7, 20);
+  ctx.fillRect(x + 1, y + 1, 7, 20);
+  ctx.strokeStyle = "#141e28"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x, y+1); ctx.lineTo(x, y+21); ctx.stroke();
+
+  /* Sandálias */
+  ctx.fillStyle = "#2a1800";
+  ctx.fillRect(x - 9, y + 18, 9, 4);
+  ctx.fillRect(x + 0, y + 18, 9, 4);
+
+  /* ── Camisa branca ── */
+  ctx.fillStyle = "#d8d8e8";
+  ctx.beginPath(); ctx.roundRect(x - 9, y - 3, 18, 15, [2, 2, 0, 0]); ctx.fill();
+  ctx.strokeStyle = "#b0b0c0"; ctx.lineWidth = 0.5;
+  ctx.beginPath(); ctx.roundRect(x - 9, y - 3, 18, 15, [2, 2, 0, 0]); ctx.stroke();
+  /* Decote em V */
+  ctx.fillStyle = "#f5d6b0";
+  ctx.beginPath();
+  ctx.moveTo(x, y - 3); ctx.lineTo(x - 3, y + 3); ctx.lineTo(x + 3, y + 3);
+  ctx.closePath(); ctx.fill();
+
+  /* ── Haramaki verde (faixa abdominal) ── */
+  ctx.fillStyle = "#228833";
+  ctx.fillRect(x - 9, y + 4, 18, 8);
+  ctx.strokeStyle = "#1a6625"; ctx.lineWidth = 0.8;
+  ctx.beginPath(); ctx.moveTo(x-9, y+4); ctx.lineTo(x+9, y+4); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x-9, y+12); ctx.lineTo(x+9, y+12); ctx.stroke();
+
+  /* ── Braços ── */
+  ctx.fillStyle = "#d8d8e8";
+  ctx.fillRect(x - 16, y - 3, 7, 12);
+  ctx.fillRect(x +  9, y - 3, 7, 12);
+
+  /* Mãos */
+  ctx.fillStyle = "#f5d6b0";
+  ctx.beginPath(); ctx.arc(x - 13, y + 7, 4, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 13, y + 7, 4, 0, Math.PI*2); ctx.fill();
+
+  /* ── Espadas na cintura (1 ou 2) ── */
+  const hipSlots = [
+    { ox: -14, oy: 2, rot:  0.32 },
+    { ox:  14, oy: 2, rot: -0.32 },
+  ];
+  const drawCount = numSwords >= 2 ? 2 : 1;
+  for (let i = 0; i < drawCount; i++) {
+    const sp = hipSlots[i];
+    ctx.save();
+    ctx.translate(x + sp.ox, y + sp.oy); ctx.rotate(sp.rot);
+    /* Bainha */
+    ctx.fillStyle = "#332211";
+    ctx.fillRect(-2, -14, 5, 22);
+    /* Guarda */
+    ctx.fillStyle = swordColor;
+    ctx.fillRect(-5, -1, 11, 3);
+    /* Cabo */
+    ctx.fillStyle = "#446633";
+    ctx.fillRect(-1, -14, 4, 8);
+    /* Fio */
+    ctx.strokeStyle = "#aabbaa"; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(1.5, -2); ctx.lineTo(1.5, -14); ctx.stroke();
+    ctx.restore();
+  }
+
+  /* ── Cabelo verde — picos atrás ── */
+  ctx.fillStyle   = "#228833";
+  ctx.strokeStyle = "#165522"; ctx.lineWidth = 0.9;
+  const zSpikes = [
+    [hx - 8,  hy - 5,  hx - 12, hy - 18],
+    [hx - 3,  hy - 8,  hx - 3,  hy - 23],
+    [hx + 2,  hy - 8,  hx + 2,  hy - 22],
+    [hx + 7,  hy - 5,  hx + 11, hy - 17],
+  ];
+  for (const [bx, by, tx, ty] of zSpikes) {
+    ctx.beginPath();
+    ctx.moveTo(bx-3, by); ctx.lineTo(tx, ty); ctx.lineTo(bx+3, by);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  /* Calota */
+  ctx.fillStyle = "#228833";
+  ctx.beginPath();
+  ctx.arc(hx, hy, hr + 1, -Math.PI * 0.88, Math.PI * 0.12);
+  ctx.lineTo(hx, hy); ctx.closePath(); ctx.fill();
+
+  /* ── Rosto ── */
+  ctx.fillStyle = "#f5d6b0";
+  ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = "#d4a870"; ctx.lineWidth = 0.7; ctx.stroke();
+
+  /* ── Bandana preta sobre a testa ── */
+  ctx.fillStyle = "#111";
+  ctx.fillRect(hx - hr - 2, hy - 5, (hr + 2) * 2, 7);
+  /* Ponta da bandana pendente */
+  ctx.beginPath();
+  ctx.moveTo(hx + 7, hy + 1);
+  ctx.lineTo(hx + 15, hy + 9);
+  ctx.lineTo(hx + 8,  hy + 7);
+  ctx.closePath(); ctx.fill();
+
+  /* ── Franja verde na frente ── */
+  ctx.fillStyle = "#228833";
+  ctx.beginPath();
+  ctx.moveTo(hx - 8, hy - 5);
+  ctx.lineTo(hx - 5, hy - 12);
+  ctx.lineTo(hx - 1, hy - 6);
+  ctx.lineTo(hx + 3, hy - 11);
+  ctx.lineTo(hx + 7, hy - 5);
+  ctx.closePath(); ctx.fill();
+
+  /* ── Cicatriz diagonal (olho direito) ── */
+  ctx.strokeStyle = "#cc2222"; ctx.lineWidth = 1.6; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(hx+2, hy-6); ctx.lineTo(hx+3, hy+5); ctx.stroke();
+
+  /* Olho esquerdo (aberto, sério) */
+  ctx.fillStyle = "#1a1a1a";
+  ctx.beginPath(); ctx.arc(hx - 3.5, hy + 1, 2.6, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = "#555";
+  ctx.beginPath(); ctx.arc(hx - 3.5, hy + 1, 1.3, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.7)";
+  ctx.beginPath(); ctx.arc(hx - 2.7, hy + 0.3, 0.7, 0, Math.PI*2); ctx.fill();
+
+  /* Olho direito (fechado — linha) */
+  ctx.strokeStyle = "#555"; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(hx + 1.5, hy + 1.5); ctx.lineTo(hx + 5.5, hy + 1.5); ctx.stroke();
+
+  /* Sobrancelha esquerda franzida */
+  ctx.strokeStyle = "#333"; ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.moveTo(hx-6.5, hy-2); ctx.lineTo(hx-1.5, hy-4); ctx.stroke();
+
+  /* Nariz */
+  ctx.strokeStyle = "#c4956a"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(hx, hy+2.5); ctx.lineTo(hx+0.5, hy+4.5); ctx.stroke();
+
+  /* Boca (carrancuda, séria) */
+  ctx.strokeStyle = "#8a5530"; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(hx - 3, hy + 6.5);
+  ctx.quadraticCurveTo(hx, hy + 7.2, hx + 3, hy + 6.5);
+  ctx.stroke();
+}
+
+/* ─────────────────────────────────────────────
+   SAKY — suporte de kimono vermelho
+   Cabelo rosa espetado, faixa amarela, soco no chão.
+   ───────────────────────────────────────────── */
+function drawSaky(ctx, t) {
+  const x = t.x, y = t.y;
+  const hx = x, hy = y - 14;
+  const hr = 8;
+  const isMax = t.level === 4;
+
+  /* Aura de energia rosa (nível MAX) */
+  if (isMax) {
+    const g = ctx.createRadialGradient(hx, hy, 2, hx, hy, 26);
+    g.addColorStop(0,   "rgba(255,100,180,0.5)");
+    g.addColorStop(0.6, "rgba(255,50,120,0.15)");
+    g.addColorStop(1,   "rgba(255,50,120,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.ellipse(hx, hy, 22, 28, 0, 0, Math.PI*2); ctx.fill();
+  }
+
+  /* Calças vermelhas escuras */
+  ctx.fillStyle = "#660022";
+  ctx.fillRect(x - 7, y + 3, 6, 18);
+  ctx.fillRect(x + 1, y + 3, 6, 18);
+  ctx.strokeStyle = "#440011"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x, y+3); ctx.lineTo(x, y+21); ctx.stroke();
+
+  /* Sandálias */
+  ctx.fillStyle = "#2a1800";
+  ctx.fillRect(x - 8, y + 19, 8, 3);
+  ctx.fillRect(x + 0, y + 19, 8, 3);
+
+  /* Kimono vermelho — corpo */
+  ctx.fillStyle = t.bodyColor;
+  ctx.beginPath(); ctx.roundRect(x - 10, y - 5, 20, 18, [3, 3, 1, 1]); ctx.fill();
+  /* Gola branca do kimono */
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.moveTo(x, y - 5); ctx.lineTo(x - 4, y + 5); ctx.lineTo(x + 4, y + 5);
+  ctx.closePath(); ctx.fill();
+  /* Sobreposição do kimono */
+  ctx.fillStyle = t.bodyColor;
+  ctx.beginPath(); ctx.moveTo(x-10,y-5); ctx.lineTo(x-4,y-5); ctx.lineTo(x-5,y+4); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x+10,y-5); ctx.lineTo(x+4,y-5); ctx.lineTo(x+5,y+4); ctx.closePath(); ctx.fill();
+
+  /* Faixa amarela */
+  ctx.fillStyle = "#ffcc00";
+  ctx.fillRect(x - 10, y + 5, 20, 5);
+  ctx.strokeStyle = "#cc9900"; ctx.lineWidth = 0.7;
+  ctx.strokeRect(x - 10, y + 5, 20, 5);
+  /* Laço da faixa */
+  ctx.fillStyle = "#ffcc00";
+  ctx.beginPath(); ctx.ellipse(x + 12, y + 7, 5, 3.5, 0.4, 0, Math.PI*2); ctx.fill();
+
+  /* Braço de ataque rotacionado */
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(t.angle);
+  ctx.fillStyle = t.bodyColor;
+  ctx.fillRect(5, -4, 14, 7);
+  /* Mão com brilho */
+  ctx.fillStyle = "#f5d6b0";
+  ctx.beginPath(); ctx.arc(18, 0, 4.5, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = isMax ? "rgba(255,50,150,0.8)" : "rgba(255,136,255,0.65)";
+  ctx.beginPath(); ctx.arc(18, 0, 6.5, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  /* Braço de suporte */
+  ctx.fillStyle = t.bodyColor;
+  ctx.save(); ctx.translate(x, y + 2); ctx.rotate(t.angle + Math.PI);
+  ctx.fillRect(4, -3, 9, 6); ctx.restore();
+
+  /* Picos de cabelo rosa (atrás) */
+  const hairCol = isMax ? "#ff00aa" : "#ff88cc";
+  ctx.fillStyle   = hairCol;
+  ctx.strokeStyle = "#cc0066"; ctx.lineWidth = 0.9;
+  const sSpikes = [
+    [hx-10, hy-3,  hx-15, hy-15],
+    [hx-5,  hy-8,  hx-5,  hy-23],
+    [hx+1,  hy-9,  hx+1,  hy-25],
+    [hx+6,  hy-7,  hx+9,  hy-20],
+    [hx+10, hy-3,  hx+16, hy-12],
+  ];
+  for (const [bx, by, tx2, ty] of sSpikes) {
+    ctx.beginPath();
+    ctx.moveTo(bx-2.5, by); ctx.lineTo(tx2, ty); ctx.lineTo(bx+2.5, by);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  /* Calota posterior */
+  ctx.fillStyle = hairCol;
+  ctx.beginPath();
+  ctx.arc(hx, hy + 1, hr + 2, Math.PI * 0.08, Math.PI * 0.92);
+  ctx.lineTo(hx - hr - 2, hy);
+  ctx.arc(hx, hy, hr + 2, Math.PI * 0.92, Math.PI * 0.08, false);
+  ctx.closePath(); ctx.fill();
+
+  /* Rosto */
+  ctx.fillStyle = "#f5d6b0";
+  ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = "#d4a870"; ctx.lineWidth = 0.7; ctx.stroke();
+
+  /* Franja rosa */
+  ctx.fillStyle = hairCol;
+  ctx.beginPath();
+  ctx.moveTo(hx - hr, hy - 1);
+  ctx.lineTo(hx - hr + 1, hy - 6);
+  ctx.lineTo(hx - 4, hy - 2);
+  ctx.lineTo(hx - 1, hy - 8);
+  ctx.lineTo(hx + 2, hy - 2);
+  ctx.lineTo(hx + 5, hy - 7);
+  ctx.lineTo(hx + hr, hy - 2);
+  ctx.lineTo(hx + hr, hy);
+  ctx.closePath(); ctx.fill();
+
+  /* Olhos — expressão determinada */
+  ctx.fillStyle = "#cc0055";
+  ctx.beginPath(); ctx.arc(hx - 3.5, hy + 1, 2.5, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(hx + 3.5, hy + 1, 2.5, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = "#1a001a";
+  ctx.beginPath(); ctx.arc(hx - 3.5, hy + 1, 1.1, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(hx + 3.5, hy + 1, 1.1, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.8)";
+  ctx.beginPath(); ctx.arc(hx - 2.8, hy + 0.3, 0.6, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(hx + 4.2, hy + 0.3, 0.6, 0, Math.PI*2); ctx.fill();
+
+  /* Sobrancelhas finas */
+  ctx.strokeStyle = "#993355"; ctx.lineWidth = 1.3;
+  ctx.beginPath(); ctx.moveTo(hx-6, hy-3); ctx.lineTo(hx-2, hy-5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(hx+2, hy-5); ctx.lineTo(hx+6, hy-3); ctx.stroke();
+
+  /* Boca sorridente */
+  ctx.strokeStyle = "#cc4477"; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(hx - 3, hy + 5.5);
+  ctx.quadraticCurveTo(hx, hy + 7.5, hx + 3, hy + 5.5);
+  ctx.stroke();
+}
+
+/* ─────────────────────────────────────────────
+   LUFFO — paródia de pirata de chapéu de palha
+   Colete vermelho aberto, chapéu de palha,
+   braços de borracha que estendem ao atacar.
+   ───────────────────────────────────────────── */
+function drawLuffo(ctx, t) {
+  const x = t.x, y = t.y;
+  const hx = x, hy = y - 14;
+  const hr = 8;
+  const isMax = t.level === 4;
+
+  /* Aura de poder (Gear Quinto) */
+  if (isMax) {
+    const g = ctx.createRadialGradient(hx, hy, 2, hx, hy, 28);
+    g.addColorStop(0,   "rgba(255,255,255,0.5)");
+    g.addColorStop(0.6, "rgba(255,180,180,0.18)");
+    g.addColorStop(1,   "rgba(255,80,80,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.ellipse(hx, hy, 22, 28, 0, 0, Math.PI*2); ctx.fill();
+  }
+
+  /* Calças azuis curtas */
+  ctx.fillStyle = "#1a4499";
+  ctx.fillRect(x - 8, y + 8, 7, 12);
+  ctx.fillRect(x + 1, y + 8, 7, 12);
+  /* Faixa amarela na cintura */
+  ctx.fillStyle = "#ffd166";
+  ctx.fillRect(x - 9, y + 6, 18, 4);
+  /* Sandálias */
+  ctx.fillStyle = "#3a2200";
+  ctx.fillRect(x - 9, y + 19, 9, 3);
+  ctx.fillRect(x + 0, y + 19, 9, 3);
+
+  /* Colete vermelho aberto (peito exposto) */
+  ctx.fillStyle = "#f5d6b0";
+  ctx.fillRect(x - 6, y - 4, 12, 12);
+  ctx.fillStyle = t.bodyColor;
+  ctx.beginPath();
+  ctx.moveTo(x - 10, y - 5); ctx.lineTo(x - 5, y - 5);
+  ctx.lineTo(x - 7,  y + 7); ctx.lineTo(x - 10, y + 7);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(x + 10, y - 5); ctx.lineTo(x + 5, y - 5);
+  ctx.lineTo(x + 7,  y + 7); ctx.lineTo(x + 10, y + 7);
+  ctx.closePath(); ctx.fill();
+
+  /* Cicatriz característica no peito (X) */
+  ctx.strokeStyle = "#8a1122"; ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(x - 3, y - 1); ctx.lineTo(x + 3, y + 5);
+  ctx.moveTo(x + 3, y - 1); ctx.lineTo(x - 3, y + 5);
+  ctx.stroke();
+
+  /* Braço de ataque — esticável (rotacionado) */
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(t.angle);
+  /* Manga vermelha curta no ombro */
+  ctx.fillStyle = t.bodyColor;
+  ctx.fillRect(2, -4, 5, 8);
+  /* Braço (pele) */
+  ctx.fillStyle = "#f5d6b0";
+  ctx.fillRect(6, -3, 13, 6);
+  /* Punho fechado */
+  ctx.fillStyle = "#f5d6b0";
+  ctx.beginPath(); ctx.arc(20, 0, 4.5, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = "#cc2233"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(20, 0, 4.5, 0, Math.PI*2); ctx.stroke();
+  ctx.restore();
+
+  /* Braço de suporte */
+  ctx.fillStyle = "#f5d6b0";
+  ctx.save();
+  ctx.translate(x, y + 2); ctx.rotate(t.angle + Math.PI);
+  ctx.fillRect(3, -2.5, 7, 5);
+  ctx.restore();
+
+  /* ── Cabeça ── */
+  ctx.fillStyle = "#f5d6b0";
+  ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = "#d4a870"; ctx.lineWidth = 0.7;
+  ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI*2); ctx.stroke();
+
+  /* Cabelo preto curto sob o chapéu */
+  ctx.fillStyle = "#0a0a0a";
+  ctx.beginPath();
+  ctx.arc(hx, hy - 2, hr - 0.5, Math.PI * 0.92, Math.PI * 2.08);
+  ctx.closePath(); ctx.fill();
+
+  /* Olhos grandes alegres */
+  ctx.fillStyle = "#1a1a1a";
+  ctx.beginPath(); ctx.arc(hx - 3, hy, 1.8, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(hx + 3, hy, 1.8, 0, Math.PI*2); ctx.fill();
+  /* Sorriso largo */
+  ctx.strokeStyle = "#8a3322"; ctx.lineWidth = 1.3;
+  ctx.beginPath();
+  ctx.arc(hx, hy + 3.5, 3.2, 0.15, Math.PI - 0.15);
+  ctx.stroke();
+  /* Cicatriz pequena sob o olho esquerdo */
+  ctx.strokeStyle = "#aa2233"; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(hx - 4.5, hy + 2.5); ctx.lineTo(hx - 1.5, hy + 4); ctx.stroke();
+
+  /* ── CHAPÉU DE PALHA ── */
+  /* Aba larga */
+  ctx.fillStyle = "#ffd166";
+  ctx.beginPath(); ctx.ellipse(hx, hy - hr + 1, 15, 4, 0, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = "#aa7a00"; ctx.lineWidth = 0.8;
+  ctx.beginPath(); ctx.ellipse(hx, hy - hr + 1, 15, 4, 0, 0, Math.PI*2); ctx.stroke();
+  /* Copa do chapéu */
+  ctx.fillStyle = "#f4c850";
+  ctx.beginPath();
+  ctx.ellipse(hx, hy - hr - 2, 9, 5, 0, Math.PI, 0, true); ctx.fill();
+  /* Linhas de palha verticais na copa */
+  ctx.strokeStyle = "#aa7a00"; ctx.lineWidth = 0.6;
+  for (let i = -3; i <= 3; i++) {
+    ctx.beginPath();
+    ctx.moveTo(hx + i*2.2, hy - hr - 6);
+    ctx.lineTo(hx + i*2.5, hy - hr);
+    ctx.stroke();
+  }
+  /* Linhas de palha horizontais na aba */
+  ctx.beginPath();
+  ctx.moveTo(hx - 14, hy - hr + 1); ctx.lineTo(hx + 14, hy - hr + 1); ctx.stroke();
+  /* Fita vermelha em volta da copa */
+  ctx.fillStyle = "#cc2233";
+  ctx.fillRect(hx - 9, hy - hr - 1, 18, 2);
+}
+
+/* ─────────────────────────────────────────────
+   NARU — paródia de ninja loiro com bandana
+   Cabelo amarelo espetado, bandana azul/cinza,
+   marca tribal nas bochechas, shuriken de energia.
+   ───────────────────────────────────────────── */
+function drawNaru(ctx, t) {
+  const x = t.x, y = t.y;
+  const hx = x, hy = y - 13;
+  const hr = 8;
+  const isMax = t.level === 4;
+  const isSage = t.level >= 3;
+
+  /* Aura sennin (nível MAX) */
+  if (isMax) {
+    const g = ctx.createRadialGradient(hx, hy, 2, hx, hy, 30);
+    g.addColorStop(0,   "rgba(255,180,80,0.5)");
+    g.addColorStop(0.5, "rgba(255,140,40,0.18)");
+    g.addColorStop(1,   "rgba(255,100,0,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.ellipse(hx, hy, 24, 30, 0, 0, Math.PI*2); ctx.fill();
+  }
+
+  /* Calças laranja */
+  ctx.fillStyle = "#cc6622";
+  ctx.fillRect(x - 8, y + 8, 7, 13);
+  ctx.fillRect(x + 1, y + 8, 7, 13);
+  ctx.strokeStyle = "#883300"; ctx.lineWidth = 0.7;
+  ctx.beginPath(); ctx.moveTo(x, y+8); ctx.lineTo(x, y+21); ctx.stroke();
+
+  /* Sandálias ninja */
+  ctx.fillStyle = "#1a1a1a";
+  ctx.fillRect(x - 9, y + 19, 9, 3);
+  ctx.fillRect(x + 0, y + 19, 9, 3);
+
+  /* Jaqueta laranja com detalhe preto */
+  ctx.fillStyle = "#ff8a3d";
+  ctx.beginPath(); ctx.roundRect(x - 10, y - 5, 20, 18, [3, 3, 2, 2]); ctx.fill();
+  /* Listra preta vertical no peito */
+  ctx.fillStyle = "#1a1a1a";
+  ctx.fillRect(x - 2, y - 5, 4, 18);
+  /* Espiral vermelha no peito (símbolo Uzumaki) */
+  ctx.strokeStyle = "#aa1122"; ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.arc(x + 5, y + 3, 2.8, 0, Math.PI * 1.8);
+  ctx.stroke();
+
+  /* Braço de arremesso (rotacionado pelo angle) */
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(t.angle);
+  ctx.fillStyle = "#ff8a3d";
+  ctx.fillRect(5, -3.5, 12, 7);
+  /* Mão */
+  ctx.fillStyle = "#f5d6b0";
+  ctx.beginPath(); ctx.arc(18, 0, 4, 0, Math.PI*2); ctx.fill();
+  /* Mini shuriken na mão preparada */
+  ctx.fillStyle = isSage ? "#ffe680" : "#5dd0ff";
+  ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 8;
+  ctx.beginPath();
+  for (let i = 0; i < 4; i++) {
+    const a = i * Math.PI / 2 + 0.3;
+    ctx.lineTo(18 + Math.cos(a)*5, Math.sin(a)*5);
+    const a2 = a + Math.PI/4;
+    ctx.lineTo(18 + Math.cos(a2)*1.5, Math.sin(a2)*1.5);
+  }
+  ctx.closePath(); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.restore();
+
+  /* Braço de suporte */
+  ctx.fillStyle = "#ff8a3d";
+  ctx.save();
+  ctx.translate(x, y + 2); ctx.rotate(t.angle + Math.PI);
+  ctx.fillRect(4, -3, 8, 6);
+  ctx.restore();
+
+  /* ── Cabeça ── */
+  ctx.fillStyle = "#f5d6b0";
+  ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = "#d4a870"; ctx.lineWidth = 0.7;
+  ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI*2); ctx.stroke();
+
+  /* Cabelo amarelo espetado (atrás) */
+  ctx.fillStyle  = "#ffd230";
+  ctx.strokeStyle = "#bb8800"; ctx.lineWidth = 0.7;
+  const nSpikes = [
+    [hx-9,  hy-3,  hx-14, hy-12],
+    [hx-5,  hy-7,  hx-7,  hy-19],
+    [hx-1,  hy-8,  hx-1,  hy-22],
+    [hx+3,  hy-8,  hx+5,  hy-20],
+    [hx+7,  hy-6,  hx+12, hy-14],
+    [hx+10, hy-2,  hx+15, hy-7]
+  ];
+  for (const [bx, by, tx, ty] of nSpikes) {
+    const hw = 2.4;
+    ctx.beginPath();
+    ctx.moveTo(bx - hw, by); ctx.lineTo(tx, ty); ctx.lineTo(bx + hw, by);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  /* Calota frontal de cabelo (franja) */
+  ctx.fillStyle = "#ffd230";
+  ctx.beginPath();
+  ctx.moveTo(hx - hr, hy - 1);
+  ctx.lineTo(hx - 5,  hy - hr - 1);
+  ctx.lineTo(hx - 1,  hy - 3);
+  ctx.lineTo(hx + 2,  hy - hr - 1);
+  ctx.lineTo(hx + 5,  hy - 4);
+  ctx.lineTo(hx + hr, hy - 2);
+  ctx.lineTo(hx + hr, hy - hr*0.4);
+  ctx.lineTo(hx - hr, hy - hr*0.4);
+  ctx.closePath(); ctx.fill();
+
+  /* ── BANDANA azul/cinza ── */
+  ctx.fillStyle = "#3a5a8c";
+  ctx.fillRect(hx - hr - 1, hy - hr + 1, hr*2 + 2, 4);
+  /* Placa metálica central */
+  ctx.fillStyle = "#aab5c5";
+  ctx.fillRect(hx - 4, hy - hr + 1.5, 8, 3);
+  ctx.strokeStyle = "#5a6578"; ctx.lineWidth = 0.6;
+  ctx.strokeRect(hx - 4, hy - hr + 1.5, 8, 3);
+  /* Espiral pequena na placa */
+  ctx.strokeStyle = "#222";
+  ctx.beginPath();
+  ctx.arc(hx, hy - hr + 3, 1, 0, Math.PI*1.6); ctx.stroke();
+  /* Pontas da bandana caindo atrás */
+  ctx.fillStyle = "#3a5a8c";
+  ctx.beginPath();
+  ctx.moveTo(hx + hr + 1, hy - hr + 2);
+  ctx.lineTo(hx + hr + 5, hy + 4);
+  ctx.lineTo(hx + hr + 1, hy + 2);
+  ctx.closePath(); ctx.fill();
+
+  /* Olhos azuis brilhantes */
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath(); ctx.arc(hx - 3, hy + 1, 2.2, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(hx + 3, hy + 1, 2.2, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = isSage ? "#ffaa00" : "#3a8cff";
+  ctx.beginPath(); ctx.arc(hx - 3, hy + 1, 1.2, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(hx + 3, hy + 1, 1.2, 0, Math.PI*2); ctx.fill();
+
+  /* Marcas tribais nas bochechas (3 linhas de cada lado) */
+  ctx.strokeStyle = "#aa6644"; ctx.lineWidth = 0.7;
+  for (let i = -1; i <= 1; i++) {
+    ctx.beginPath();
+    ctx.moveTo(hx - 5, hy + 3 + i * 1.6); ctx.lineTo(hx - 7, hy + 3 + i * 1.6);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(hx + 5, hy + 3 + i * 1.6); ctx.lineTo(hx + 7, hy + 3 + i * 1.6);
+    ctx.stroke();
+  }
+
+  /* Sorriso confiante */
+  ctx.strokeStyle = "#8a5530"; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(hx, hy + 5.5, 2.5, 0.1, Math.PI - 0.1);
+  ctx.stroke();
+}
+
+function drawGenericTower(ctx, t) {
+  /* Visual de fallback para torres futuras */
+  ctx.fillStyle = t.bodyColor || "#555";
+  ctx.beginPath(); ctx.arc(t.x, t.y, 18, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = t.type.accent || "#888"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(t.x, t.y, 18, 0, Math.PI*2); ctx.stroke();
+  ctx.fillStyle = "#fff"; ctx.font = "bold 11px Segoe UI"; ctx.textAlign = "center";
+  ctx.fillText(t.type.name[0], t.x, t.y + 4);
+  ctx.textAlign = "left";
+}
+
+/* ── Inimigos ── */
+function drawEnemies(ctx) {
+  for (const e of State.enemies) {
+    if (e.dead) continue;
+    /* Sombra */
+    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    ctx.beginPath();
+    ctx.ellipse(e.x, e.y + e.radius - 2, e.radius * 0.85, e.radius * 0.28, 0, 0, Math.PI*2);
+    ctx.fill();
+    if      (e.typeId === "slime")  drawSlime(ctx, e);
+    else if (e.typeId === "ninja")  drawNinja(ctx, e);
+    else if (e.typeId === "ogre")   drawOgre(ctx, e);
+    else if (e.typeId === "healer") drawHealer(ctx, e);
+    else if (e.typeId === "shield") drawShieldEnemy(ctx, e);
+    else if (e.typeId === "frizzo") drawFrizzo(ctx, e);
+    else if (e.typeId === "madaro") drawMadaro(ctx, e);
+
+    /* Indicador de buff de velocidade (Frizzo) */
+    if (e.buffTimer > 0 && !e.isBoss) {
+      ctx.strokeStyle = "rgba(255,80,200,0.7)"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(e.x, e.y, e.radius + 6, 0, Math.PI*2); ctx.stroke();
+    }
+    /* Anel de lentidão */
+    if (e.slowTimer > 0) {
+      ctx.strokeStyle = "rgba(180,100,255,0.7)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(e.x, e.y, e.radius + 4, 0, Math.PI*2); ctx.stroke();
+    }
+    if (!e.isBoss) drawHPBar(ctx, e);
+  }
+}
+
+function drawSlime(ctx, e) {
+  ctx.fillStyle = e.typeDef.color;
+  ctx.beginPath(); ctx.arc(e.x, e.y, e.radius, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = e.typeDef.outline; ctx.lineWidth = 2; ctx.stroke();
+  /* Olhos grandes redondos */
+  ctx.fillStyle = "#fff";
+  ctx.beginPath(); ctx.arc(e.x-4, e.y-2, 3.5, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(e.x+4, e.y-2, 3.5, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = "#000";
+  ctx.beginPath(); ctx.arc(e.x-3, e.y-2, 1.8, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(e.x+5, e.y-2, 1.8, 0, Math.PI*2); ctx.fill();
+  /* Boca */
+  ctx.strokeStyle = "#881122"; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(e.x, e.y+3, 4, 0.1, Math.PI-0.1); ctx.stroke();
+}
+
+function drawNinja(ctx, e) {
+  ctx.fillStyle = e.typeDef.color;
+  ctx.beginPath(); ctx.arc(e.x, e.y, e.radius, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = e.typeDef.outline; ctx.lineWidth = 2; ctx.stroke();
+  /* Faixa de tecido cobrindo o rosto */
+  ctx.fillStyle = "#112255";
+  ctx.fillRect(e.x - e.radius + 1, e.y - 3, e.radius*2 - 2, 5);
+  /* Olho vermelho brilhando */
+  ctx.fillStyle = "#ff3300";
+  ctx.beginPath(); ctx.arc(e.x, e.y-1, 2.2, 0, Math.PI*2); ctx.fill();
+  /* Shuriken no corpo */
+  ctx.strokeStyle = "#99aaff"; ctx.lineWidth = 1;
+  for (let i = 0; i < 4; i++) {
+    const a = i * Math.PI / 2;
+    ctx.beginPath();
+    ctx.moveTo(e.x + Math.cos(a)*3,  e.y+5 + Math.sin(a)*3);
+    ctx.lineTo(e.x + Math.cos(a+0.7)*8, e.y+5 + Math.sin(a+0.7)*8);
+    ctx.stroke();
+  }
+}
+
+function drawOgre(ctx, e) {
+  /* Corpo grande */
+  ctx.fillStyle = e.typeDef.color;
+  ctx.beginPath(); ctx.arc(e.x, e.y, e.radius, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = e.typeDef.outline; ctx.lineWidth = 3; ctx.stroke();
+  /* Chifres grandes */
+  ctx.fillStyle = "#331144";
+  ctx.beginPath(); // chifre esq
+  ctx.moveTo(e.x - e.radius*.5, e.y - e.radius*.6);
+  ctx.lineTo(e.x - e.radius*.9, e.y - e.radius*1.5);
+  ctx.lineTo(e.x - e.radius*.2, e.y - e.radius*.9);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath(); // chifre dir
+  ctx.moveTo(e.x + e.radius*.5, e.y - e.radius*.6);
+  ctx.lineTo(e.x + e.radius*.9, e.y - e.radius*1.5);
+  ctx.lineTo(e.x + e.radius*.2, e.y - e.radius*.9);
+  ctx.closePath(); ctx.fill();
+  /* Cara interna */
+  ctx.fillStyle = "#cc88ff";
+  ctx.beginPath(); ctx.arc(e.x, e.y, e.radius*.62, 0, Math.PI*2); ctx.fill();
+  /* Olhos raivosos */
+  ctx.fillStyle = "#ff0000";
+  ctx.fillRect(e.x-7, e.y-5, 5, 4);
+  ctx.fillRect(e.x+2, e.y-5, 5, 4);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(e.x-6, e.y-4, 3, 2);
+  ctx.fillRect(e.x+3, e.y-4, 3, 2);
+  /* Runa de poder no peito */
+  ctx.strokeStyle = "#ee44ff"; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(e.x,   e.y+3); ctx.lineTo(e.x,   e.y+10);
+  ctx.moveTo(e.x-4, e.y+6); ctx.lineTo(e.x+4, e.y+6);
+  ctx.stroke();
+}
+
+/* ── Curandeiro (verde) ── */
+function drawHealer(ctx, e) {
+  /* aura passiva */
+  const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 250);
+  ctx.fillStyle = `rgba(80, 220, 130, ${0.10 + 0.06*pulse})`;
+  ctx.beginPath(); ctx.arc(e.x, e.y, e.typeDef.healRange, 0, Math.PI*2); ctx.fill();
+
+  ctx.fillStyle = e.typeDef.color;
+  ctx.beginPath(); ctx.arc(e.x, e.y, e.radius, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = e.typeDef.outline; ctx.lineWidth = 2; ctx.stroke();
+
+  /* Cruz médica branca */
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(e.x - 2, e.y - 7, 4, 14);
+  ctx.fillRect(e.x - 7, e.y - 2, 14, 4);
+
+  /* Capuz */
+  ctx.fillStyle = "#155a2a";
+  ctx.beginPath(); ctx.arc(e.x, e.y - e.radius * 0.55, e.radius * 0.6, Math.PI, 0); ctx.fill();
+}
+
+/* ── Escudeiro (cinza) ── */
+function drawShieldEnemy(ctx, e) {
+  /* Corpo */
+  ctx.fillStyle = e.typeDef.color;
+  ctx.beginPath(); ctx.arc(e.x, e.y, e.radius, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = e.typeDef.outline; ctx.lineWidth = 2.5; ctx.stroke();
+
+  /* Escudo metálico segurado à frente */
+  ctx.fillStyle = "#c8ccd6";
+  ctx.beginPath(); ctx.ellipse(e.x, e.y, e.radius * 0.95, e.radius * 1.05, 0, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = "#5a5e6a"; ctx.lineWidth = 2; ctx.stroke();
+  /* Cruz/emblema do escudo */
+  ctx.fillStyle = "#5a5e6a";
+  ctx.fillRect(e.x - 1.5, e.y - 8, 3, 16);
+  ctx.fillRect(e.x - 7,   e.y - 1.5, 14, 3);
+
+  /* Olhos por trás do escudo */
+  ctx.fillStyle = "#ffcc33";
+  ctx.fillRect(e.x - 5, e.y - e.radius * 0.7, 3, 2);
+  ctx.fillRect(e.x + 2, e.y - e.radius * 0.7, 3, 2);
+
+  /* Aura de proteção em campo (sutil) */
+  const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 320);
+  ctx.strokeStyle = `rgba(180, 200, 240, ${0.18 + 0.12*pulse})`; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(e.x, e.y, e.typeDef.shieldRange, 0, Math.PI*2); ctx.stroke();
+}
+
+/* ── FRIZZO (boss roxo+branco, onda 10) ── */
+function drawFrizzo(ctx, e) {
+  /* Aura roxa pulsante */
+  const pulse = 0.6 + 0.4 * Math.sin(Date.now() / 200);
+  const g = ctx.createRadialGradient(e.x, e.y, 4, e.x, e.y, e.radius * 2);
+  g.addColorStop(0,   `rgba(200,120,255,${0.55*pulse})`);
+  g.addColorStop(0.5, `rgba(160,80,255,${0.25*pulse})`);
+  g.addColorStop(1,   "rgba(160,80,255,0)");
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(e.x, e.y, e.radius * 2, 0, Math.PI*2); ctx.fill();
+
+  /* Círculo do raio de buff (sutil) */
+  ctx.strokeStyle = "rgba(255,150,255,0.22)"; ctx.lineWidth = 2;
+  ctx.setLineDash([6, 6]);
+  ctx.beginPath(); ctx.arc(e.x, e.y, e.typeDef.buffRange, 0, Math.PI*2); ctx.stroke();
+  ctx.setLineDash([]);
+
+  /* Corpo (roxo) com casca branca */
+  ctx.fillStyle = e.typeDef.color;
+  ctx.beginPath(); ctx.arc(e.x, e.y, e.radius, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.beginPath(); ctx.arc(e.x, e.y - 4, e.radius * 0.78, Math.PI*0.05, Math.PI*0.95); ctx.fill();
+  ctx.strokeStyle = "#fff"; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(e.x, e.y, e.radius, 0, Math.PI*2); ctx.stroke();
+
+  /* Olhos malignos */
+  ctx.fillStyle = "#ff2255";
+  ctx.beginPath(); ctx.ellipse(e.x - 9, e.y - 4, 4, 5, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(e.x + 9, e.y - 4, 4, 5, 0, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = "#000";
+  ctx.fillRect(e.x - 10, e.y - 4, 2, 4);
+  ctx.fillRect(e.x +  8, e.y - 4, 2, 4);
+
+  /* Boca afiada */
+  ctx.strokeStyle = "#330011"; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(e.x - 10, e.y + 8);
+  ctx.lineTo(e.x - 5,  e.y + 12);
+  ctx.lineTo(e.x,      e.y + 8);
+  ctx.lineTo(e.x + 5,  e.y + 12);
+  ctx.lineTo(e.x + 10, e.y + 8);
+  ctx.stroke();
+}
+
+/* ── MADARO (mega boss onda 20) ── */
+function drawMadaro(ctx, e) {
+  const shielded = e.shielded;
+
+  /* Aura de fundo */
+  const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 180);
+  const auraColor = shielded ? "rgba(80,200,255," : "rgba(255,40,80,";
+  const g = ctx.createRadialGradient(e.x, e.y, 6, e.x, e.y, e.radius * 2.2);
+  g.addColorStop(0,   auraColor + (0.6*pulse) + ")");
+  g.addColorStop(0.6, auraColor + (0.18*pulse) + ")");
+  g.addColorStop(1,   auraColor + "0)");
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(e.x, e.y, e.radius * 2.2, 0, Math.PI*2); ctx.fill();
+
+  /* Corpo escuro */
+  ctx.fillStyle = e.typeDef.color;
+  ctx.beginPath(); ctx.arc(e.x, e.y, e.radius, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = shielded ? "#66ddff" : e.typeDef.outline;
+  ctx.lineWidth = 4; ctx.stroke();
+
+  /* Armadura/escamas */
+  ctx.fillStyle = "rgba(255,255,255,0.04)";
+  for (let i = 0; i < 5; i++) {
+    ctx.beginPath();
+    ctx.arc(e.x, e.y + 2, e.radius - 4 - i*4, Math.PI*0.15, Math.PI*0.85);
+    ctx.stroke();
+  }
+
+  /* Olhos ardentes */
+  const eyeColor = shielded ? "#88eaff" : "#ff3344";
+  ctx.fillStyle = eyeColor;
+  ctx.shadowColor = eyeColor; ctx.shadowBlur = 12;
+  ctx.beginPath(); ctx.arc(e.x - 11, e.y - 6, 4, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(e.x + 11, e.y - 6, 4, 0, Math.PI*2); ctx.fill();
+  ctx.shadowBlur = 0;
+
+  /* Marca no centro (símbolo) */
+  ctx.strokeStyle = shielded ? "#aaeeff" : "#ffaacc"; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(e.x - 8, e.y + 4); ctx.lineTo(e.x, e.y + 12); ctx.lineTo(e.x + 8, e.y + 4);
+  ctx.stroke();
+
+  /* Escudo orbital quando ativo */
+  if (shielded) {
+    const t = Date.now() / 400;
+    for (let i = 0; i < 3; i++) {
+      const a = t + i * (Math.PI * 2 / 3);
+      ctx.strokeStyle = `rgba(140,220,255,${0.5 + 0.3*Math.sin(t*2 + i)})`;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.ellipse(e.x, e.y, e.radius + 10, e.radius + 4, a, 0, Math.PI*2);
+      ctx.stroke();
+    }
+    /* Anel interno brilhante */
+    ctx.strokeStyle = "rgba(180,230,255,0.85)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(e.x, e.y, e.radius + 6, 0, Math.PI*2); ctx.stroke();
+  }
+}
+
+function drawHPBar(ctx, e) {
+  const w = e.radius * 2.2, h = 4;
+  const ratio = Math.max(0, e.hp / e.maxHp);
+  const bx = e.x - w/2, by = e.y - e.radius - 9;
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillRect(bx, by, w, h);
+  ctx.fillStyle = ratio > 0.5 ? "#5dffa0" : ratio > 0.25 ? "#ffd166" : "#ff5566";
+  ctx.fillRect(bx, by, w * ratio, h);
+}
+
+/* ── Projéteis e Efeitos ── */
+function drawProjectiles(ctx) {
+  for (const p of State.projectiles) {
+    if (p.spin !== undefined) {
+      /* Energy Shuriken — estrela de 4 pontas girando */
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.spin);
+      ctx.shadowColor = p.color; ctx.shadowBlur = 14;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      const r = p.radius + 2;
+      for (let i = 0; i < 8; i++) {
+        const ang = i * Math.PI / 4;
+        const rr  = (i % 2 === 0) ? r : r * 0.42;
+        const x = Math.cos(ang) * rr;
+        const y = Math.sin(ang) * rr;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.closePath(); ctx.fill();
+      /* Núcleo branco */
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath(); ctx.arc(0, 0, r * 0.35, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    } else {
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.radius, 0, Math.PI*2); ctx.fill();
+    }
+  }
+}
+
+function drawEffects(ctx) {
+  for (const ef of State.effects) {
+    const a = ef.life / ef.maxLife;
+    ctx.globalAlpha = a;
+
+    if (ef.type === "beam") {
+      ctx.shadowColor = ef.color; ctx.shadowBlur = 28;
+      ctx.strokeStyle = ef.color; ctx.lineWidth = ef.width || 10;
+      ctx.beginPath(); ctx.moveTo(ef.x1, ef.y1); ctx.lineTo(ef.x2, ef.y2); ctx.stroke();
+      /* Núcleo branco */
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = (ef.width || 10) * 0.28;
+      ctx.beginPath(); ctx.moveTo(ef.x1, ef.y1); ctx.lineTo(ef.x2, ef.y2); ctx.stroke();
+      ctx.shadowBlur = 0;
+
+    } else if (ef.type === "slash") {
+      const count = ef.slashCount || 3;
+      ctx.shadowColor = "#fff"; ctx.shadowBlur = 14;
+      ctx.strokeStyle = ef.color; ctx.lineWidth = 3;
+      for (let i = 0; i < count; i++) {
+        const ang = ef.angle + i * (Math.PI * 2 / count);
+        const r   = ef.radius * (0.45 + 0.55 * (1 - a));
+        ctx.beginPath(); ctx.arc(ef.x, ef.y, r, ang, ang + Math.PI * 0.38); ctx.stroke();
+      }
+      ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(ef.x, ef.y, ef.radius, 0, Math.PI*2); ctx.stroke();
+      ctx.shadowBlur = 0;
+
+    } else if (ef.type === "slam") {
+      const r = ef.maxRadius * (1 - a);
+      ctx.shadowColor = ef.color; ctx.shadowBlur = 18;
+      /* Anel expansivo */
+      ctx.strokeStyle = ef.color; ctx.lineWidth = 4 * a;
+      ctx.beginPath(); ctx.arc(ef.x, ef.y, r, 0, Math.PI*2); ctx.stroke();
+      /* Anel interno */
+      ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.lineWidth = 2 * a;
+      ctx.beginPath(); ctx.arc(ef.x, ef.y, r * 0.6, 0, Math.PI*2); ctx.stroke();
+      /* Brilho no centro */
+      const gr = ctx.createRadialGradient(ef.x, ef.y, 0, ef.x, ef.y, r * 0.35);
+      gr.addColorStop(0, `rgba(255,200,255,${0.5 * a})`);
+      gr.addColorStop(1, "rgba(255,136,255,0)");
+      ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(ef.x, ef.y, r * 0.35, 0, Math.PI*2); ctx.fill();
+      ctx.shadowBlur = 0;
+
+    } else if (ef.type === "dragon") {
+      /* Feixe vertical de luz dourada cobrindo todo o canvas */
+      ctx.shadowColor = "#ffcc00"; ctx.shadowBlur = 40;
+      const bx = ef.x;
+      const h  = State.canvas.height;
+      /* Camada externa larga */
+      const g1 = ctx.createLinearGradient(bx - 60, 0, bx + 60, 0);
+      g1.addColorStop(0,   "rgba(255,180,0,0)");
+      g1.addColorStop(0.4, `rgba(255,220,0,${0.35 * a})`);
+      g1.addColorStop(0.5, `rgba(255,255,200,${0.7 * a})`);
+      g1.addColorStop(0.6, `rgba(255,220,0,${0.35 * a})`);
+      g1.addColorStop(1,   "rgba(255,180,0,0)");
+      ctx.fillStyle = g1;
+      ctx.fillRect(bx - 60, 0, 120, h);
+      /* Núcleo branco estreito */
+      const g2 = ctx.createLinearGradient(bx - 12, 0, bx + 12, 0);
+      g2.addColorStop(0,   "rgba(255,255,255,0)");
+      g2.addColorStop(0.4, `rgba(255,255,255,${0.9 * a})`);
+      g2.addColorStop(0.5, `rgba(255,255,255,${a})`);
+      g2.addColorStop(0.6, `rgba(255,255,255,${0.9 * a})`);
+      g2.addColorStop(1,   "rgba(255,255,255,0)");
+      ctx.fillStyle = g2;
+      ctx.fillRect(bx - 12, 0, 24, h);
+      ctx.shadowBlur = 0;
+
+    } else if (ef.type === "healPulse") {
+      const r = ef.maxRadius * (1 - a);
+      ctx.strokeStyle = "rgba(80,255,140,0.9)"; ctx.lineWidth = 3 * a;
+      ctx.beginPath(); ctx.arc(ef.x, ef.y, r, 0, Math.PI*2); ctx.stroke();
+      ctx.fillStyle = `rgba(80,255,140,${0.18*a})`;
+      ctx.beginPath(); ctx.arc(ef.x, ef.y, r, 0, Math.PI*2); ctx.fill();
+      /* Cruz central */
+      ctx.fillStyle = `rgba(255,255,255,${a})`;
+      ctx.fillRect(ef.x - 2, ef.y - 8, 4, 16);
+      ctx.fillRect(ef.x - 8, ef.y - 2, 16, 4);
+
+    } else if (ef.type === "buffPulse") {
+      const r = ef.maxRadius * (1 - a);
+      ctx.strokeStyle = "rgba(255,80,200,0.85)"; ctx.lineWidth = 4 * a;
+      ctx.beginPath(); ctx.arc(ef.x, ef.y, r, 0, Math.PI*2); ctx.stroke();
+      ctx.fillStyle = `rgba(255,100,220,${0.15*a})`;
+      ctx.beginPath(); ctx.arc(ef.x, ef.y, r, 0, Math.PI*2); ctx.fill();
+
+    } else if (ef.type === "stretch") {
+      /* Braço esticado — gradiente pele com manga vermelha + onda no impacto */
+      ctx.shadowColor = "#ff6677"; ctx.shadowBlur = 10;
+      /* Manga vermelha (linha mais grossa por baixo) */
+      ctx.strokeStyle = "#cc2233"; ctx.lineWidth = (ef.width || 5) + 4;
+      ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(ef.x1, ef.y1); ctx.lineTo(ef.x2, ef.y2); ctx.stroke();
+      /* Braço (cor de pele por cima) */
+      ctx.strokeStyle = ef.color; ctx.lineWidth = ef.width || 5;
+      ctx.beginPath(); ctx.moveTo(ef.x1, ef.y1); ctx.lineTo(ef.x2, ef.y2); ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.lineCap = "butt";
+      /* Punho no ponto de impacto */
+      ctx.fillStyle = "#f5d6b0";
+      ctx.beginPath(); ctx.arc(ef.x2, ef.y2, 7, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = "#cc2233"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(ef.x2, ef.y2, 7, 0, Math.PI*2); ctx.stroke();
+      /* Onda de choque circular */
+      const ringR = (1 - a) * 28;
+      ctx.strokeStyle = `rgba(255,180,60,${a})`; ctx.lineWidth = 3 * a;
+      ctx.beginPath(); ctx.arc(ef.x2, ef.y2, ringR, 0, Math.PI*2); ctx.stroke();
+
+    } else if (ef.type === "blockText") {
+      ctx.font = "bold 13px Segoe UI";
+      ctx.textAlign = "center";
+      ctx.fillStyle = ef.color;
+      ctx.shadowColor = "#000"; ctx.shadowBlur = 6;
+      ctx.fillText(ef.text, ef.x, ef.y - (1 - a) * 14);
+      ctx.shadowBlur = 0;
+      ctx.textAlign = "left";
+    }
+
+    ctx.globalAlpha = 1;
+  }
+}
+
+/* ── Preview de posicionamento ── */
+function drawPlacementPreview(ctx) {
+  if (!State.selectedTowerType || !State.hoverCell) return;
+  const { col, row } = State.hoverCell;
+  if (col < 0 || row < 0 || col >= CONFIG.cols || row >= CONFIG.rows) return;
+  const ts = CONFIG.tileSize;
+  const cx = col * ts + ts/2, cy = row * ts + ts/2;
+  const valid = State.grid[row][col] === 0 && State.gold >= State.selectedTowerType.cost;
+  const clr   = valid ? "#5dd0ff" : "#ff6b6b";
+
+  ctx.fillStyle   = valid ? "rgba(93,208,255,0.13)" : "rgba(255,107,107,0.18)";
+  ctx.fillRect(col*ts, row*ts, ts, ts);
+
+  ctx.strokeStyle = clr; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(cx, cy, State.selectedTowerType.range, 0, Math.PI*2); ctx.stroke();
+  ctx.fillStyle = valid ? "rgba(93,208,255,0.05)" : "rgba(255,107,107,0.05)"; ctx.fill();
+
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = State.selectedTowerType.color;
+  ctx.beginPath(); ctx.arc(cx, cy, 18, 0, Math.PI*2); ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+/* ── Alcance da torre selecionada ── */
+function drawSelectedRange(ctx) {
+  const t = State.selectedTower;
+  if (!t) return;
+  ctx.strokeStyle = "rgba(255,209,102,0.7)"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(t.x, t.y, t.range, 0, Math.PI*2); ctx.stroke();
+  ctx.fillStyle = "rgba(255,209,102,0.06)"; ctx.fill();
+}
+
+/* ── BOOT ── */
+init();
+</script>
+</div><!-- /app -->
+</body>
+</html>
