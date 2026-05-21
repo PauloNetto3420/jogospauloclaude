@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Brasfoot Moderno</title>
+  <link rel="stylesheet" href="src/ui/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <h1>BRAS<span class="accent">FOOT</span></h1>
+      <div class="info" id="topbar-info"></div>
+    </header>
+
+    <aside id="sidebar">
+      <div class="team-card" id="team-card"></div>
+      <nav id="nav"></nav>
+      <div class="play-section">
+        <button id="btn-play-round" class="btn-play">▶  JOGAR RODADA</button>
+      </div>
+    </aside>
+
+    <main id="main"></main>
+  </div>
+
+  <div id="match-overlay">
+    <div class="scoreboard" id="scoreboard"></div>
+    <div class="match-body">
+      <div class="match-feed">
+        <h3>Eventos</h3>
+        <div id="match-events"></div>
+      </div>
+      <div class="match-stats" id="match-stats"></div>
+    </div>
+    <div class="match-footer" id="match-footer"></div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
