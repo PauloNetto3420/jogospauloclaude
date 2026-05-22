@@ -8,6 +8,8 @@
   --muted: #8593a8;
   --accent: #00d97e;
   --accent-2: #0ea5e9;
+  --accent-rgb: 0, 217, 126;
+  --accent-2-rgb: 14, 165, 233;
   --warning: #f59e0b;
   --danger: #ef4444;
   --gold: #fbbf24;
@@ -100,7 +102,7 @@ body {
 .nav-btn.active {
   color: var(--accent);
   border-left-color: var(--accent);
-  background: rgba(0,217,126,0.08);
+  background: rgba(var(--accent-rgb),0.08);
   font-weight: 600;
 }
 .nav-btn .icon { font-size: 16px; width: 20px; text-align: center; }
@@ -122,7 +124,7 @@ body {
   font-size: 14px;
   cursor: pointer;
   letter-spacing: 0.3px;
-  box-shadow: 0 4px 14px rgba(0,217,126,0.3);
+  box-shadow: 0 4px 14px rgba(var(--accent-rgb),0.3);
 }
 .btn-play:hover { filter: brightness(1.05); }
 .btn-play:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; box-shadow: none; }
@@ -184,9 +186,9 @@ tbody td {
   border-bottom: 1px solid rgba(255,255,255,0.04);
 }
 tbody tr:hover { background: rgba(255,255,255,0.02); }
-tbody tr.highlight { background: rgba(0,217,126,0.08); }
+tbody tr.highlight { background: rgba(var(--accent-rgb),0.08); }
 tbody tr.highlight td:first-child { border-left: 3px solid var(--accent); }
-tbody tr.starter { background: rgba(14,165,233,0.06); }
+tbody tr.starter { background: rgba(var(--accent-2-rgb),0.06); }
 
 /* -------------------- Badges / botões -------------------- */
 .badge {
@@ -301,24 +303,24 @@ button.btn-toggle.on { background: var(--accent); color: #000; border-color: var
 }
 .match-feed .event:first-child {
   animation: highlightIn .6s ease;
-  box-shadow: 0 0 0 1px rgba(0,217,126,0.2);
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb),0.2);
 }
 @keyframes slideIn {
   from { transform: translateX(-12px); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }
 }
 @keyframes highlightIn {
-  0%   { transform: translateY(-6px); opacity: 0; background: rgba(0,217,126,0.15); }
-  60%  { background: rgba(0,217,126,0.15); }
+  0%   { transform: translateY(-6px); opacity: 0; background: rgba(var(--accent-rgb),0.15); }
+  60%  { background: rgba(var(--accent-rgb),0.15); }
   100% { transform: translateY(0); opacity: 1; background: var(--bg-2); }
 }
 .match-feed .event.goal:first-child { animation: goalPulse .8s ease; }
 @keyframes goalPulse {
-  0%   { transform: scale(0.92); opacity: 0; background: rgba(0,217,126,0.35); }
-  40%  { transform: scale(1.03); background: rgba(0,217,126,0.25); }
-  100% { transform: scale(1); opacity: 1; background: rgba(0,217,126,0.08); }
+  0%   { transform: scale(0.92); opacity: 0; background: rgba(var(--accent-rgb),0.35); }
+  40%  { transform: scale(1.03); background: rgba(var(--accent-rgb),0.25); }
+  100% { transform: scale(1); opacity: 1; background: rgba(var(--accent-rgb),0.08); }
 }
-.match-feed .event.goal { border-left-color: var(--accent); background: rgba(0,217,126,0.08); }
+.match-feed .event.goal { border-left-color: var(--accent); background: rgba(var(--accent-rgb),0.08); }
 .match-feed .event.red { border-left-color: var(--danger); }
 .match-feed .event.yellow { border-left-color: var(--gold); }
 .match-feed .event.injury { border-left-color: var(--warning); }
@@ -489,7 +491,7 @@ button.btn-toggle.on { background: var(--accent); color: #000; border-color: var
   margin-right: 4px;
   margin-bottom: 4px;
 }
-.trait-chip.positive { background: rgba(0,217,126,0.12); border-color: var(--accent); color: var(--accent); }
+.trait-chip.positive { background: rgba(var(--accent-rgb),0.12); border-color: var(--accent); color: var(--accent); }
 .trait-chip.negative { background: rgba(239,68,68,0.12); border-color: var(--danger); color: var(--danger); }
 
 .clickable-player { cursor: pointer; }

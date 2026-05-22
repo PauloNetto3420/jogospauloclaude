@@ -23,6 +23,7 @@ import {
 } from "./engine/cup.js";
 import { saveGame, loadGame, listSaves, deleteSave } from "./db.js";
 import { SERIE_A_SEED, SERIE_B_SEED } from "../data/teams.seed.js";
+import { TEAM_LOGOS } from "../data/team-logos.js";
 
 // -------------------- Constantes --------------------
 const POS_GROUP = {
@@ -85,6 +86,7 @@ function renderBootScreen(save) {
   $topInfo.innerHTML = "";
 
   const my = save.teams[save.managedTeamId];
+  applyTeamTheme(my.colors); // já aplica o tema do save antes do "Continuar"
   $main.innerHTML = `
     <div class="view-title">Bem-vindo de volta</div>
     <div class="view-sub">Há um jogo em andamento. O que deseja fazer?</div>
@@ -128,12 +130,15 @@ function loadIntoState(save) {
   rng = createRng(state.settings?.seed ?? Date.now());
   syncPlayerIdCounter(state.players);
 
+  applyTeamTheme(state.teams[MY_TEAM_ID].colors);
+
   $btnPlay.style.display = "";
   view = "lineup";
   render();
 }
 
 function renderTeamPicker() {
+  applyTeamTheme(null); // reseta para o verde padrão
   $teamCard.innerHTML = "";
   $nav.innerHTML = "";
   $btnPlay.style.display = "none";
@@ -174,9 +179,7 @@ function teamCard(t) {
   return `
     <div class="card team-pick" data-team="${t.id}" style="cursor:pointer;border-top:4px solid ${t.colors.primary};transition:transform .15s,border-color .15s;padding:14px">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-        <div style="width:32px;height:32px;border-radius:50%;background:${t.colors.primary};display:flex;align-items:center;justify-content:center;font-weight:700;color:${t.colors.secondary};font-size:11px">
-          ${t.shortName}
-        </div>
+        ${teamLogo(t.id, 36, t)}
         <div style="min-width:0">
           <div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.name}</div>
           <div style="font-size:11px;color:var(--muted)">${t.city}/${t.state}</div>
@@ -251,6 +254,8 @@ async function startGame(teamId) {
 
   state.teams[MY_TEAM_ID].lineup = autoLineup(state.teams[MY_TEAM_ID]);
 
+  applyTeamTheme(state.teams[MY_TEAM_ID].colors);
+
   try { await saveGame(state); } catch (e) { console.warn("Save inicial falhou:", e); }
 
   $btnPlay.style.display = "";
@@ -281,7 +286,10 @@ function renderShell() {
   `;
 
   $teamCard.innerHTML = `
-    <div class="name">${my.name}</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      ${teamLogo(MY_TEAM_ID, 32)}
+      <div class="name">${my.name}</div>
+    </div>
     <div class="meta">Reputação ${my.reputation} · ${my.squad.length} jogadores</div>
   `;
 
@@ -301,7 +309,22 @@ function renderShell() {
   });
 
   $btnPlay.disabled = round == null;
-  $btnPlay.textContent = round == null ? "✓ TEMPORADA ENCERRADA" : `▶  JOGAR RODADA ${round}`;
+  if (round == null) {
+    $btnPlay.textContent = "✓ TEMPORADA ENCERRADA";
+  } else {
+    const next = findNextUserCommitment(round);
+    if (next) {
+      const oppId = next.match.homeTeamId === MY_TEAM_ID
+        ? next.match.awayTeamId
+        : next.match.homeTeamId;
+      const oppShort = state.teams[oppId]?.shortName ?? "?";
+      const local = next.match.homeTeamId === MY_TEAM_ID ? "🏠" : "✈️";
+      const prefix = next.isCup ? "🏆 COPA" : `▶ RODADA ${round}`;
+      $btnPlay.textContent = `${prefix} · ${local} vs ${oppShort}`;
+    } else {
+      $btnPlay.textContent = `▶ AVANÇAR SEMANA (R${round})`;
+    }
+  }
   $btnPlay.onclick = playRound;
 
   // Botão de "novo jogo" injetado uma vez
@@ -465,7 +488,7 @@ function renderStandings() {
             ${sorted.map((s, i) => `
               <tr class="${s.teamId === MY_TEAM_ID ? "highlight" : ""}">
                 <td>${i + 1}</td>
-                <td><b>${state.teams[s.teamId].name}</b></td>
+                <td><span style="margin-right:8px">${teamLogo(s.teamId, 20)}</span><b>${state.teams[s.teamId].name}</b></td>
                 <td><b style="color:var(--accent)">${s.points}</b></td>
                 <td>${s.played}</td><td>${s.wins}</td><td>${s.draws}</td><td>${s.losses}</td>
                 <td>${s.goalsFor}</td><td>${s.goalsAgainst}</td><td>${s.goalsFor - s.goalsAgainst}</td>
@@ -637,7 +660,7 @@ function renderCup() {
           ${cup.libertaEntrants.map(id => {
             const t = state.teams[id];
             const isMe = id === MY_TEAM_ID;
-            return `<span style="background:${isMe ? "rgba(0,217,126,0.15)" : "var(--bg-2)"};border:1px solid ${isMe ? "var(--accent)" : "var(--border)"};padding:4px 10px;border-radius:6px;font-size:12px">
+            return `<span style="background:${isMe ? "rgba(var(--accent-rgb),0.15)" : "var(--bg-2)"};border:1px solid ${isMe ? "var(--accent)" : "var(--border)"};padding:4px 10px;border-radius:6px;font-size:12px">
               <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${t.colors.primary};margin-right:6px;vertical-align:middle"></span>${t.name}
             </span>`;
           }).join("")}
@@ -685,8 +708,8 @@ function renderCupTie(tie, legs) {
   const teamA = state.teams[tie.teamAId];
   const teamB = state.teams[tie.teamBId];
   const isMine = tie.teamAId === MY_TEAM_ID || tie.teamBId === MY_TEAM_ID;
-  const bg = isMine ? "rgba(0,217,126,0.06)" : "transparent";
-  const border = isMine ? "1px solid rgba(0,217,126,0.3)" : "1px solid var(--border)";
+  const bg = isMine ? "rgba(var(--accent-rgb),0.06)" : "transparent";
+  const border = isMine ? "1px solid rgba(var(--accent-rgb),0.3)" : "1px solid var(--border)";
 
   let bodyHtml;
   if (legs === 1) {
@@ -854,12 +877,12 @@ function renderMatchRow(m) {
   const home = state.teams[m.homeTeamId];
   const away = state.teams[m.awayTeamId];
   const isMine = m.homeTeamId === MY_TEAM_ID || m.awayTeamId === MY_TEAM_ID;
-  const bg = isMine ? "rgba(0,217,126,0.06)" : "transparent";
-  const border = isMine ? "1px solid rgba(0,217,126,0.3)" : "1px solid transparent";
+  const bg = isMine ? "rgba(var(--accent-rgb),0.06)" : "transparent";
+  const border = isMine ? "1px solid rgba(var(--accent-rgb),0.3)" : "1px solid transparent";
   const clickable = m.played;
   const cursor = clickable ? "pointer" : "default";
   const hover = clickable
-    ? `onmouseover="this.style.background='${isMine ? "rgba(0,217,126,0.12)" : "rgba(255,255,255,0.04)"}'" onmouseout="this.style.background='${bg}'"`
+    ? `onmouseover="this.style.background='${isMine ? "rgba(var(--accent-rgb),0.12)" : "rgba(255,255,255,0.04)"}'" onmouseout="this.style.background='${bg}'"`
     : "";
 
   let center;
@@ -880,13 +903,13 @@ function renderMatchRow(m) {
   return `
     <div ${clickable ? `data-match="${m.id}"` : ""} style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;padding:6px 10px;background:${bg};border:${border};border-radius:4px;font-size:13px;cursor:${cursor};transition:background .15s" ${hover}>
       <div style="text-align:right;font-weight:${isMine && m.homeTeamId === MY_TEAM_ID ? "700" : "500"};${m.played && m.score.home > m.score.away ? "" : "color:var(--muted)"}">
-        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${home.colors.primary};margin-right:6px;vertical-align:middle"></span>
         ${home.name}
+        <span style="margin-left:8px">${teamLogo(home.id, 20)}</span>
       </div>
       ${center}
       <div style="font-weight:${isMine && m.awayTeamId === MY_TEAM_ID ? "700" : "500"};${m.played && m.score.away > m.score.home ? "" : "color:var(--muted)"}">
+        <span style="margin-right:8px">${teamLogo(away.id, 20)}</span>
         ${away.name}
-        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${away.colors.primary};margin-left:6px;vertical-align:middle"></span>
       </div>
     </div>
   `;
@@ -1049,56 +1072,62 @@ function handleBid(kind, pid) {
 }
 
 // -------------------- Jogar Rodada --------------------
+// Cada clique processa UM compromisso por vez:
+//   1) Se há partida pendente do usuário (copa primeiro, depois liga),
+//      joga essa única partida e volta pro menu.
+//   2) Quando não há mais partidas do usuário na rodada,
+//      simula a IA, paga finanças, gera notícias e avança a semana.
 function playRound() {
   const comp = state.competitions[MY_COMP_ID];
   const round = getCurrentRound(comp);
   if (round == null) return;
 
   const cup = state.competitions.copa_brasil;
-
-  // Sorteio de fase antes da rodada (se aplicável)
   if (cup) maybeDrawNextPhase(cup, round - 1, rng, state.teams);
 
-  // Identifica jogos do usuário NESTA rodada
-  const myLeagueMatch = getMatchesOfRound(comp, round)
-    .find(m => m.homeTeamId === MY_TEAM_ID || m.awayTeamId === MY_TEAM_ID);
-  const cupLegs = cup ? getCupLegsForRound(cup, round) : [];
-  const myCupLeg = cupLegs.find(l => l.homeTeamId === MY_TEAM_ID || l.awayTeamId === MY_TEAM_ID);
+  const next = findNextUserCommitment(round);
 
-  // Define a sequência de jogos AO VIVO do usuário nesta semana (copa primeiro se vier antes na rodada)
-  const userMatches = [];
-  if (myCupLeg)     userMatches.push({ match: myCupLeg, isCup: true });
-  if (myLeagueMatch) userMatches.push({ match: myLeagueMatch, isCup: false });
-
-  playUserMatchesSequence(userMatches, 0, round);
+  if (next) {
+    // Joga UMA partida do usuário e retorna ao menu.
+    const home = state.teams[next.match.homeTeamId];
+    const away = state.teams[next.match.awayTeamId];
+    const sim = createMatchSimulator({
+      homeTeam: home, awayTeam: away, playersById: state.players, rng,
+    });
+    playMatchOnScreen(next.match, sim, async () => {
+      const result = sim.getResult();
+      if (next.isCup) {
+        applyCupLegToState(next.match, result);
+        log(`🏆 Copa: ${state.teams[next.match.homeTeamId].shortName} ${result.score.home}×${result.score.away} ${state.teams[next.match.awayTeamId].shortName}`);
+      } else {
+        applyMatchResult(state, next.match, result, comp);
+      }
+      try { await saveGame(state); } catch (e) { console.warn("Save falhou:", e); }
+      render();
+    });
+  } else {
+    // Não há mais partida do usuário nesta rodada — simula IA e fecha a semana.
+    finalizeRound(round);
+  }
 }
 
-function playUserMatchesSequence(matches, idx, round) {
-  if (idx >= matches.length) {
-    // Acabaram os jogos do usuário — finaliza rodada (simula resto, finanças etc)
-    finalizeRound(round);
-    return;
-  }
-  const { match, isCup } = matches[idx];
-  const home = state.teams[match.homeTeamId];
-  const away = state.teams[match.awayTeamId];
-  const sim = createMatchSimulator({
-    homeTeam: home, awayTeam: away, playersById: state.players, rng,
-  });
+// Próximo compromisso do USUÁRIO na rodada atual. Copa antes, liga depois.
+function findNextUserCommitment(round) {
+  const comp = state.competitions[MY_COMP_ID];
+  if (!comp) return null;
+  const cup = state.competitions.copa_brasil;
 
-  playMatchOnScreen(match, sim, () => {
-    const result = sim.getResult();
-    // Aplica resultado ao fixture (liga ou copa)
-    if (isCup) {
-      applyCupLegToState(match, result);
-    } else {
-      const compId = MY_COMP_ID;
-      const competition = state.competitions[compId];
-      applyMatchResult(state, match, result, competition);
-    }
-    // Continua a sequência
-    playUserMatchesSequence(matches, idx + 1, round);
-  });
+  if (cup) {
+    const myCupLeg = getCupLegsForRound(cup, round)
+      .find(l => !l.played && (l.homeTeamId === MY_TEAM_ID || l.awayTeamId === MY_TEAM_ID));
+    if (myCupLeg) return { isCup: true, match: myCupLeg };
+  }
+
+  const myLeagueMatch = getMatchesOfRound(comp, round)
+    .find(m => !m.played && (m.homeTeamId === MY_TEAM_ID || m.awayTeamId === MY_TEAM_ID));
+  if (myLeagueMatch) return { isCup: false, match: myLeagueMatch };
+
+  return null;
 }
 
 function applyCupLegToState(leg, result) {
@@ -1151,7 +1180,10 @@ function playMatchOnScreen(match, sim, onContinue) {
   const renderMatch = () => {
     document.getElementById("scoreboard").innerHTML = `
       <div class="team">
-        <div class="name">${home.name}</div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:6px">
+          ${teamLogo(home.id, 48)}
+          <div class="name">${home.name}</div>
+        </div>
         <div class="short">${home.shortName} · ${home.tactics?.formation || "4-3-3"}</div>
       </div>
       <div class="center">
@@ -1159,7 +1191,10 @@ function playMatchOnScreen(match, sim, onContinue) {
         <div class="minute">${sim.minute >= 90 ? "FIM DE JOGO" : sim.minute + "'"}</div>
       </div>
       <div class="team">
-        <div class="name">${away.name}</div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:6px">
+          <div class="name">${away.name}</div>
+          ${teamLogo(away.id, 48)}
+        </div>
         <div class="short">${away.shortName} · ${away.tactics?.formation || "4-3-3"}</div>
       </div>
     `;
@@ -1780,7 +1815,10 @@ function openMatchDetail(matchId, compId) {
   document.getElementById("match-modal-content").innerHTML = `
     <div class="match-detail-header" style="border-top:3px solid ${home.colors.primary}">
       <div class="team-side home">
-        <div class="name" style="color:${homeWon ? "var(--accent)" : "var(--text)"}">${home.name}</div>
+        <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px">
+          <div class="name" style="color:${homeWon ? "var(--accent)" : "var(--text)"}">${home.name}</div>
+          ${teamLogo(home.id, 44)}
+        </div>
         <div class="meta">${home.shortName} · ${home.tactics?.formation || "4-3-3"}</div>
       </div>
       <div style="text-align:center">
@@ -1792,7 +1830,10 @@ function openMatchDetail(matchId, compId) {
         <div class="meta-center">Rodada ${match.round} · ${match.date || "—"}${match.attendance ? ` · 👥 ${fmt(match.attendance)} pagantes` : ""}</div>
       </div>
       <div class="team-side away">
-        <div class="name" style="color:${awayWon ? "var(--accent)" : "var(--text)"}">${away.name}</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          ${teamLogo(away.id, 44)}
+          <div class="name" style="color:${awayWon ? "var(--accent)" : "var(--text)"}">${away.name}</div>
+        </div>
         <div class="meta">${away.shortName} · ${away.tactics?.formation || "4-3-3"}</div>
       </div>
       <button class="close" id="match-modal-close" style="position:absolute;right:14px;top:14px;background:var(--panel-2);border:1px solid var(--border);color:var(--text);width:32px;height:32px;border-radius:6px;font-size:18px;cursor:pointer">×</button>
@@ -1996,7 +2037,10 @@ function renderNextMatchCard() {
 
       <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:24px;align-items:center;margin-bottom:16px">
         <div style="text-align:right">
-          <div style="font-weight:700;font-size:16px">${my.name}</div>
+          <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-bottom:2px">
+            <div style="font-weight:700;font-size:16px">${my.name}</div>
+            ${teamLogo(MY_TEAM_ID, 40)}
+          </div>
           <div style="font-size:12px;color:var(--muted)">você · ${my.tactics?.formation || "4-3-3"}</div>
           <div style="margin-top:6px;font-size:11px;color:var(--muted)">Força · Forma · Moral</div>
           <div style="font-size:18px;font-weight:800">
@@ -2012,7 +2056,10 @@ function renderNextMatchCard() {
         </div>
 
         <div>
-          <div style="font-weight:700;font-size:16px">${opp.name}</div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:2px">
+            ${teamLogo(opp.id, 40)}
+            <div style="font-weight:700;font-size:16px">${opp.name}</div>
+          </div>
           <div style="font-size:12px;color:var(--muted)">Rep ${opp.reputation} · ${opp.tactics?.formation || "4-3-3"}</div>
           <div style="margin-top:6px;font-size:11px;color:var(--muted)">Força · Forma · Moral</div>
           <div style="font-size:18px;font-weight:800">
@@ -2110,6 +2157,85 @@ function groupCount(players) {
 
 function ovrClass(ovr) { return ovr >= 80 ? "" : ovr >= 70 ? "mid" : "low"; }
 function fmt(n) { return Math.round(n).toLocaleString("pt-BR"); }
+
+// -------------------- Tema dinâmico por time --------------------
+// Substitui as variáveis CSS --accent e --accent-2 (e seus equivalentes RGB)
+// pela cor primária/secundária do time gerenciado. Cores muito escuras são
+// clareadas para garantir contraste com o texto preto dos botões.
+function applyTeamTheme(teamColors) {
+  const root = document.documentElement;
+  if (!teamColors) {
+    // Reset para padrão (verde)
+    root.style.setProperty("--accent",       "#00d97e");
+    root.style.setProperty("--accent-2",     "#0ea5e9");
+    root.style.setProperty("--accent-rgb",   "0, 217, 126");
+    root.style.setProperty("--accent-2-rgb", "14, 165, 233");
+    return;
+  }
+  const accent  = ensureBright(teamColors.primary, 0.35);
+  const accent2 = ensureBright(teamColors.secondary, 0.35);
+  root.style.setProperty("--accent",       accent);
+  root.style.setProperty("--accent-2",     accent2);
+  root.style.setProperty("--accent-rgb",   hexToRgbStr(accent));
+  root.style.setProperty("--accent-2-rgb", hexToRgbStr(accent2));
+}
+
+function luminance(hex) {
+  const { r, g, b } = parseHex(hex);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+
+function lighten(hex, amount) {
+  let { r, g, b } = parseHex(hex);
+  r = Math.round(r + (255 - r) * amount);
+  g = Math.round(g + (255 - g) * amount);
+  b = Math.round(b + (255 - b) * amount);
+  return "#" + [r, g, b].map(x => x.toString(16).padStart(2, "0")).join("");
+}
+
+function parseHex(hex) {
+  hex = (hex || "#888888").replace("#", "");
+  return {
+    r: parseInt(hex.substr(0, 2), 16),
+    g: parseInt(hex.substr(2, 2), 16),
+    b: parseInt(hex.substr(4, 2), 16),
+  };
+}
+
+function hexToRgbStr(hex) {
+  const { r, g, b } = parseHex(hex);
+  return `${r}, ${g}, ${b}`;
+}
+
+// Clareia iterativamente até atingir luminância mínima (garante contraste).
+function ensureBright(hex, minLum) {
+  let cur = hex || "#888888";
+  let lum = luminance(cur);
+  let iterations = 0;
+  while (lum < minLum && iterations < 8) {
+    const next = lighten(cur, 0.3);
+    const nextLum = luminance(next);
+    if (nextLum <= lum) break;
+    cur = next;
+    lum = nextLum;
+    iterations++;
+  }
+  return cur;
+}
+
+// Renderiza o escudo do time. Aceita seed (objeto com colors) ou usa state.teams.
+// Se não há logo cadastrado, cai pra bolinha colorida.
+function teamLogo(teamId, size = 24, teamObj = null) {
+  const path = TEAM_LOGOS[teamId];
+  const team = teamObj || state?.teams?.[teamId];
+  const color = team?.colors?.primary ?? "#888";
+  if (path) {
+    return `<img src="${path}" alt="${team?.shortName ?? teamId}"
+              style="width:${size}px;height:${size}px;object-fit:contain;vertical-align:middle;display:inline-block"
+              onerror="this.outerHTML='<span style=\\'display:inline-block;width:${size}px;height:${size}px;border-radius:50%;background:${color};vertical-align:middle\\'></span>'" />`;
+  }
+  return `<span style="display:inline-block;width:${size}px;height:${size}px;border-radius:50%;background:${color};vertical-align:middle"></span>`;
+}
 function pct(mult) {
   const diff = Math.round((mult - 1) * 100);
   return diff === 0 ? "0%" : (diff > 0 ? "+" : "") + diff + "%";

@@ -35,6 +35,12 @@ function emptyStanding(teamId) {
 
 // Algoritmo round-robin (circle method) — gera turno + returno.
 // Para n times produz n-1 rodadas × 2 = 2(n-1) rodadas totais.
+//
+// Balanceamento de mando: no circle method puro, o time fixado em arr[0]
+// (o "pivô") sempre joga em casa no turno. Para evitar isso, alternamos o
+// mando da partida do pivô entre rodadas pares e ímpares. Resultado: cada
+// time joga 9 ou 10 partidas em casa no turno (de 19 totais), e o oposto
+// no returno — totalizando 19H/19A perfeitos no campeonato inteiro.
 function generateFixtures(teamIds, season) {
   const teams = [...teamIds];
   if (teams.length % 2 === 1) teams.push(null); // bye fictício
@@ -48,8 +54,13 @@ function generateFixtures(teamIds, season) {
   let arr = [...teams];
   for (let round = 0; round < n - 1; round++) {
     for (let i = 0; i < half; i++) {
-      const home = arr[i];
-      const away = arr[n - 1 - i];
+      let home = arr[i];
+      let away = arr[n - 1 - i];
+      // Em rodadas ímpares, inverte o mando da partida do pivô (i=0).
+      // Isso garante que arr[0] não fique sempre em casa no turno.
+      if (i === 0 && round % 2 === 1) {
+        [home, away] = [away, home];
+      }
       if (home && away) {
         fixtures.push(makeMatch(++mid, round + 1, home, away, season));
       }
