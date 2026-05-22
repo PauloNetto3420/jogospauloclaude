@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check \"C:/Users/Paulo/Desktop/jogos/brasfoot/src/engine/match.js\")"
+    ]
+  }
+}
