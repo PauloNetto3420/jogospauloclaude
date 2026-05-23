@@ -21,8 +21,13 @@ import {
   createCupCompetition, getCupLegsForRound, applyCupLegResult,
   maybeDrawNextPhase, drawPhase, CUP_PHASE_ORDER, CUP_PHASE_META,
 } from "./engine/cup.js";
+import {
+  createSerieCPhase1, createSerieCGroups, createSerieCFinal,
+  decideSerieCChampion, getSerieCPromoted,
+  SERIE_C_STAGE_IDS, isSerieCStage,
+} from "./engine/serie-c.js";
 import { saveGame, loadGame, listSaves, deleteSave } from "./db.js";
-import { SERIE_A_SEED, SERIE_B_SEED } from "../data/teams.seed.js";
+import { SERIE_A_SEED, SERIE_B_SEED, SERIE_C_SEED } from "../data/teams.seed.js";
 import { TEAM_LOGOS } from "../data/team-logos.js";
 
 // -------------------- Constantes --------------------
@@ -35,6 +40,9 @@ const COMPS = {
   brasileirao_a: { name: "Brasileirão Série A", tier: 1, seed: SERIE_A_SEED },
   brasileirao_b: { name: "Brasileirão Série B", tier: 2, seed: SERIE_B_SEED },
 };
+
+// Stages internos da Série C (uma "competição lógica" abrindo subcompetições por fase)
+const SERIE_C_DISPLAY_NAME = "Brasileirão Série C";
 
 const VIEWS = [
   { id: "lineup",    label: "Escalação",     icon: "⚽" },
@@ -157,9 +165,10 @@ function renderTeamPicker() {
 
   $main.innerHTML = `
     <div class="view-title">Escolha seu Clube</div>
-    <div class="view-sub">40 clubes em 2 divisões disputam simultaneamente. Selecione o seu.</div>
+    <div class="view-sub">60 clubes em 3 divisões disputam simultaneamente. Selecione o seu.</div>
     ${tierBlock("Série A", SERIE_A_SEED, "var(--accent)")}
     ${tierBlock("Série B", SERIE_B_SEED, "var(--accent-2)")}
+    ${tierBlock("Série C", SERIE_C_SEED, "var(--warning)")}
   `;
 
   $main.querySelectorAll(".team-pick").forEach(card => {
@@ -198,7 +207,9 @@ function teamCard(t) {
 
 async function startGame(teamId) {
   MY_TEAM_ID = teamId;
-  MY_COMP_ID = SERIE_A_SEED.some(t => t.id === teamId) ? "brasileirao_a" : "brasileirao_b";
+  if (SERIE_A_SEED.some(t => t.id === teamId)) MY_COMP_ID = "brasileirao_a";
+  else if (SERIE_B_SEED.some(t => t.id === teamId)) MY_COMP_ID = "brasileirao_b";
+  else MY_COMP_ID = "brasileirao_c_p1"; // Série C começa na 1ª Fase
   standingsView = MY_COMP_ID;
   const seed = Date.now() & 0xffffffff;
   rng = createRng(seed);
@@ -213,8 +224,8 @@ async function startGame(teamId) {
     settings: { difficulty: "normal", language: "pt-BR", seed },
   };
 
-  // Cria todos os 40 times e seus elencos
-  for (const seed of [...SERIE_A_SEED, ...SERIE_B_SEED]) {
+  // Cria todos os 60 times (Série A + B + C) e seus elencos
+  for (const seed of [...SERIE_A_SEED, ...SERIE_B_SEED, ...SERIE_C_SEED]) {
     const team = createTeam(seed);
     for (const p of generateSquad(rng, team)) {
       state.players[p.id] = p;
@@ -236,11 +247,23 @@ async function startGame(teamId) {
 
   generateFreeAgents(state, rng, 60);
 
+  // Cria Série C (1ª Fase) — grupos e final são criados em runtime
+  state.competitions.brasileirao_c_p1 = createSerieCPhase1({
+    season: 2026,
+    teamIds: SERIE_C_SEED.map(t => t.id),
+  });
+  state.serieCMeta = {
+    currentPhase: "phase1",   // phase1 | groups | final | done
+    champion: null,
+    promoted: [],
+    relegated: [],
+  };
+
   // Cria Copa do Brasil para esta temporada
   state.competitions.copa_brasil = createCupCompetition({
     season: 2026,
     allTeams: state.teams,
-    libertaQualifiers: null, // 1ª temporada — usará top 4 por reputação
+    libertaQualifiers: null,
     seriesATeamIds: SERIE_A_SEED.map(t => t.id),
   });
 
@@ -308,10 +331,14 @@ function renderShell() {
     btn.onclick = () => { view = btn.dataset.view; render(); };
   });
 
-  $btnPlay.disabled = round == null;
   if (round == null) {
-    $btnPlay.textContent = "✓ TEMPORADA ENCERRADA";
-  } else {
+    $btnPlay.disabled = false;
+    $btnPlay.textContent = "▶ INICIAR NOVA TEMPORADA";
+    $btnPlay.onclick = forceResolveSeason;
+    return;
+  }
+  $btnPlay.disabled = false;
+  {
     const next = findNextUserCommitment(round);
     if (next) {
       const oppId = next.match.homeTeamId === MY_TEAM_ID
@@ -322,7 +349,8 @@ function renderShell() {
       const prefix = next.isCup ? "🏆 COPA" : `▶ RODADA ${round}`;
       $btnPlay.textContent = `${prefix} · ${local} vs ${oppShort}`;
     } else {
-      $btnPlay.textContent = `▶ AVANÇAR SEMANA (R${round})`;
+      // Sem partidas do usuário nesta rodada — simulação rápida da IA
+      $btnPlay.textContent = `▶ PRÓXIMA RODADA (R${round})`;
     }
   }
   $btnPlay.onclick = playRound;
@@ -461,6 +489,10 @@ function renderLineup() {
 
 // -------------------- View: Classificação --------------------
 function renderStandings() {
+  // Branch especial pra Série C (multi-fase)
+  if ((standingsView || "").startsWith("brasileirao_c")) {
+    return renderStandingsSerieC();
+  }
   const comp = state.competitions[standingsView];
   const sorted = sortStandings(comp, state.teams);
   const round = getCurrentRound(comp);
@@ -473,9 +505,10 @@ function renderStandings() {
         <div class="view-title" style="margin-bottom:0">${comp.name}</div>
         <div class="view-sub" style="margin-bottom:0">Rodada ${round ?? total} de ${total}${isMy ? "" : " · acompanhando"}</div>
       </div>
-      <div style="display:flex;gap:6px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn-toggle ${standingsView === "brasileirao_a" ? "on" : ""}" data-comp="brasileirao_a">Série A</button>
         <button class="btn-toggle ${standingsView === "brasileirao_b" ? "on" : ""}" data-comp="brasileirao_b">Série B</button>
+        <button class="btn-toggle ${(standingsView || "").startsWith("brasileirao_c") ? "on" : ""}" data-comp="brasileirao_c_p1">Série C</button>
       </div>
     </div>
 
@@ -520,6 +553,137 @@ function renderStandings() {
     <div class="card">
       <h3>Próximos Jogos do ${state.teams[MY_TEAM_ID].shortName}</h3>
       ${renderUpcoming()}
+    </div>
+  `;
+}
+
+function renderStandingsSerieC() {
+  const meta = state.serieCMeta || { currentPhase: "phase1" };
+  const p1 = state.competitions.brasileirao_c_p1;
+  const ga = state.competitions.brasileirao_c_ga;
+  const gb = state.competitions.brasileirao_c_gb;
+  const fn = state.competitions.brasileirao_c_final;
+
+  const seriesCButtonsHTML = `
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn-toggle ${standingsView === "brasileirao_a" ? "on" : ""}" data-comp="brasileirao_a">Série A</button>
+      <button class="btn-toggle ${standingsView === "brasileirao_b" ? "on" : ""}" data-comp="brasileirao_b">Série B</button>
+      <button class="btn-toggle on" data-comp="brasileirao_c_p1">Série C</button>
+    </div>
+  `;
+
+  const phaseLabel = {
+    phase1: "1ª Fase em andamento",
+    groups: "Quadrangulares em andamento",
+    final: "Final em andamento",
+    done: meta.champion ? `🏆 Campeão: ${state.teams[meta.champion].name}` : "Temporada encerrada",
+  }[meta.currentPhase] || "—";
+
+  const phase1Table = p1 ? `
+    <div class="card">
+      <h3>1ª Fase · Pontos Corridos${meta.currentPhase === "phase1" ? " (em andamento)" : " (encerrada)"}</h3>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:8px">
+        Os 8 primeiros avançam aos quadrangulares · 2 últimos rebaixados.
+      </p>
+      ${renderStandingsTable(p1, { highlightSlots: [8, 18] })}
+    </div>
+  ` : "";
+
+  const groupsHTML = (ga && gb) ? `
+    <div class="grid-2">
+      <div class="card">
+        <h3>Grupo A · ${meta.currentPhase === "groups" ? "em andamento" : "encerrado"}</h3>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:8px">
+          1º + 2º sobem para a Série B. Líder vai à final.
+        </p>
+        ${renderStandingsTable(ga, { highlightSlots: [1, 2] })}
+      </div>
+      <div class="card">
+        <h3>Grupo B · ${meta.currentPhase === "groups" ? "em andamento" : "encerrado"}</h3>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:8px">
+          1º + 2º sobem para a Série B. Líder vai à final.
+        </p>
+        ${renderStandingsTable(gb, { highlightSlots: [1, 2] })}
+      </div>
+    </div>
+  ` : "";
+
+  const finalHTML = fn ? `
+    <div class="card">
+      <h3>Grande Final · ${meta.champion ? "encerrada" : "em andamento"}</h3>
+      ${renderSerieCFinal(fn, meta)}
+    </div>
+  ` : "";
+
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px">
+      <div>
+        <div class="view-title" style="margin-bottom:0">Série C · ${state.season}</div>
+        <div class="view-sub" style="margin-bottom:0">${phaseLabel}</div>
+      </div>
+      ${seriesCButtonsHTML}
+    </div>
+    ${phase1Table}
+    ${groupsHTML}
+    ${finalHTML}
+  `;
+}
+
+function renderStandingsTable(comp, { highlightSlots = [] } = {}) {
+  const sorted = sortStandings(comp, state.teams);
+  return `
+    <table>
+      <thead><tr><th>#</th><th>Time</th><th>P</th><th>J</th><th>V</th><th>E</th><th>D</th><th>GP</th><th>GC</th><th>SG</th></tr></thead>
+      <tbody>
+        ${sorted.map((s, i) => {
+          const pos = i + 1;
+          let rowStyle = "";
+          if (s.teamId === MY_TEAM_ID) rowStyle = ' class="highlight"';
+          else if (highlightSlots[0] && pos <= highlightSlots[0]) rowStyle = ' style="background:rgba(var(--accent-rgb),0.04)"';
+          else if (highlightSlots[1] && pos >= sorted.length - 1 && highlightSlots[1] >= sorted.length - 1) rowStyle = ' style="background:rgba(239,68,68,0.06)"';
+          return `
+            <tr${rowStyle}>
+              <td>${pos}</td>
+              <td><span style="margin-right:8px">${teamLogo(s.teamId, 20)}</span><b>${state.teams[s.teamId].name}</b></td>
+              <td><b style="color:var(--accent)">${s.points}</b></td>
+              <td>${s.played}</td><td>${s.wins}</td><td>${s.draws}</td><td>${s.losses}</td>
+              <td>${s.goalsFor}</td><td>${s.goalsAgainst}</td><td>${s.goalsFor - s.goalsAgainst}</td>
+            </tr>
+          `;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderSerieCFinal(fn, meta) {
+  const teamA = state.teams[fn.teamAId];
+  const teamB = state.teams[fn.teamBId];
+  const r26 = fn.fixtures.find(f => f.round === 26);
+  const r27 = fn.fixtures.find(f => f.round === 27);
+  const champLine = meta.champion
+    ? `<div style="margin-top:10px;font-size:13px"><b style="color:var(--accent)">🏆 Campeão: ${state.teams[meta.champion].name}</b> · Agregado A ${fn.aggregate?.teamA ?? "?"} × B ${fn.aggregate?.teamB ?? "?"}</div>`
+    : "";
+  const legHTML = (leg) => {
+    if (!leg) return "";
+    if (leg.played) {
+      return `<span style="font-weight:700">${leg.score.home} × ${leg.score.away}</span>`;
+    }
+    return `<span style="color:var(--muted)">a jogar</span>`;
+  };
+  return `
+    <div style="font-size:13px">
+      <div style="margin-bottom:6px">
+        Ida (R26): ${teamLogo(r26?.homeTeamId ?? fn.teamBId, 18)} ${state.teams[r26?.homeTeamId ?? fn.teamBId].shortName}
+        ${legHTML(r26)}
+        ${state.teams[r26?.awayTeamId ?? fn.teamAId].shortName} ${teamLogo(r26?.awayTeamId ?? fn.teamAId, 18)}
+      </div>
+      <div>
+        Volta (R27): ${teamLogo(r27?.homeTeamId ?? fn.teamAId, 18)} ${state.teams[r27?.homeTeamId ?? fn.teamAId].shortName}
+        ${legHTML(r27)}
+        ${state.teams[r27?.awayTeamId ?? fn.teamBId].shortName} ${teamLogo(r27?.awayTeamId ?? fn.teamBId, 18)}
+      </div>
+      ${champLine}
     </div>
   `;
 }
@@ -786,10 +950,28 @@ function findMyCurrentTie(cup) {
 // -------------------- View: Calendário --------------------
 function renderCalendar() {
   const compId = calendarCompId || MY_COMP_ID;
-  const comp = state.competitions[compId];
-  const fixtures = comp.fixtures;
-  const totalRounds = Math.max(...fixtures.map(m => m.round));
-  const currentRound = getCurrentRound(comp);
+  const isSerieC = (compId || "").startsWith("brasileirao_c");
+
+  // Para Série C, agrega fixtures das 3 sub-comps em um só calendário
+  let comp, fixtures, totalRounds, currentRound, compName;
+  if (isSerieC) {
+    fixtures = [];
+    for (const subId of SERIE_C_STAGE_IDS) {
+      const c = state.competitions[subId];
+      if (c) fixtures.push(...c.fixtures);
+    }
+    totalRounds = fixtures.length ? Math.max(...fixtures.map(m => m.round)) : 27;
+    // Próxima rodada não jogada
+    const pending = fixtures.filter(m => !m.played).sort((a, b) => a.round - b.round)[0];
+    currentRound = pending ? pending.round : null;
+    compName = SERIE_C_DISPLAY_NAME;
+    comp = { fixtures, name: compName }; // shim mínimo
+  } else {
+    comp = state.competitions[compId];
+    fixtures = comp.fixtures;
+    totalRounds = Math.max(...fixtures.map(m => m.round));
+    currentRound = getCurrentRound(comp);
+  }
 
   // Agrupa por rodada
   const byRound = {};
@@ -847,6 +1029,7 @@ function renderCalendar() {
         <span style="border-left:1px solid var(--border);height:24px;margin:0 4px"></span>
         <button class="btn-toggle ${(calendarCompId ?? MY_COMP_ID) === "brasileirao_a" ? "on" : ""}" data-cal-comp="brasileirao_a">Série A</button>
         <button class="btn-toggle ${(calendarCompId ?? MY_COMP_ID) === "brasileirao_b" ? "on" : ""}" data-cal-comp="brasileirao_b">Série B</button>
+        <button class="btn-toggle ${((calendarCompId ?? MY_COMP_ID) || "").startsWith("brasileirao_c") ? "on" : ""}" data-cal-comp="brasileirao_c_p1">Série C</button>
       </div>
     </div>
 
@@ -1072,11 +1255,11 @@ function handleBid(kind, pid) {
 }
 
 // -------------------- Jogar Rodada --------------------
-// Cada clique processa UM compromisso por vez:
-//   1) Se há partida pendente do usuário (copa primeiro, depois liga),
-//      joga essa única partida e volta pro menu.
-//   2) Quando não há mais partidas do usuário na rodada,
-//      simula a IA, paga finanças, gera notícias e avança a semana.
+// Cada clique do usuário joga UMA partida ao vivo, mas TODAS as outras
+// partidas da rodada (das duas séries e da copa) acontecem em paralelo,
+// tickando minuto a minuto junto com a sua. Ao fim do jogo do usuário,
+// todos os outros resultados já estão prontos. Se for o último compromisso
+// do usuário na rodada, finanças/notícias/IA de mercado rodam aqui.
 function playRound() {
   const comp = state.competitions[MY_COMP_ID];
   const round = getCurrentRound(comp);
@@ -1088,12 +1271,14 @@ function playRound() {
   const next = findNextUserCommitment(round);
 
   if (next) {
-    // Joga UMA partida do usuário e retorna ao menu.
     const home = state.teams[next.match.homeTeamId];
     const away = state.teams[next.match.awayTeamId];
     const sim = createMatchSimulator({
       homeTeam: home, awayTeam: away, playersById: state.players, rng,
     });
+    // Outras partidas em aberto NESTA rodada → tickam em paralelo
+    const parallels = collectParallelMatches(round, next.match);
+
     playMatchOnScreen(next.match, sim, async () => {
       const result = sim.getResult();
       if (next.isCup) {
@@ -1102,13 +1287,46 @@ function playRound() {
       } else {
         applyMatchResult(state, next.match, result, comp);
       }
-      try { await saveGame(state); } catch (e) { console.warn("Save falhou:", e); }
+
+      // Se foi o último compromisso do usuário na rodada, fecha a semana
+      const stillHasUserMatch = findNextUserCommitment(round) !== null;
+      if (!stillHasUserMatch) {
+        await closeWeek(round);
+      } else {
+        try { await saveGame(state); } catch (e) { console.warn("Save falhou:", e); }
+      }
       render();
-    });
+    }, parallels);
   } else {
-    // Não há mais partida do usuário nesta rodada — simula IA e fecha a semana.
+    // Sem partidas do usuário nesta rodada — simula IA e fecha a semana.
     finalizeRound(round);
   }
+}
+
+// Coleta partidas ainda não jogadas desta rodada (excluindo a do usuário)
+// para tickarem em paralelo durante o playback ao vivo.
+function collectParallelMatches(round, excludeMatch) {
+  const list = [];
+  const cup = state.competitions.copa_brasil;
+  if (cup) {
+    for (const leg of getCupLegsForRound(cup, round)) {
+      if (!leg.played && leg.id !== excludeMatch.id) {
+        list.push({ match: leg, isCup: true, compId: "copa_brasil" });
+      }
+    }
+  }
+  // Ligas + sub-comps da Série C
+  const leagueIds = ["brasileirao_a", "brasileirao_b", ...SERIE_C_STAGE_IDS];
+  for (const compId of leagueIds) {
+    const c = state.competitions[compId];
+    if (!c) continue;
+    for (const m of getMatchesOfRound(c, round)) {
+      if (!m.played && m.id !== excludeMatch.id) {
+        list.push({ match: m, isCup: false, compId });
+      }
+    }
+  }
+  return list;
 }
 
 // Próximo compromisso do USUÁRIO na rodada atual. Copa antes, liga depois.
@@ -1154,11 +1372,24 @@ const DEFAULT_SPEED = "1x";
 // Pausa extra quando algo importante acontece (gol/expulsão/lesão) — dá tempo de ler
 const EVENT_PAUSE_BONUS = 800;
 
-function playMatchOnScreen(match, sim, onContinue) {
+function playMatchOnScreen(match, sim, onContinue, parallels = []) {
   const home = state.teams[match.homeTeamId];
   const away = state.teams[match.awayTeamId];
   // Qual lado o usuário controla
   const userSide = match.homeTeamId === MY_TEAM_ID ? "home" : "away";
+
+  // Cria simuladores das partidas paralelas (todas IA vs IA)
+  const parallelSims = parallels.map(p => ({
+    ...p,
+    home: state.teams[p.match.homeTeamId],
+    away: state.teams[p.match.awayTeamId],
+    sim: createMatchSimulator({
+      homeTeam: state.teams[p.match.homeTeamId],
+      awayTeam: state.teams[p.match.awayTeamId],
+      playersById: state.players, rng,
+    }),
+  }));
+  let parallelsApplied = false;
 
   let speed = DEFAULT_SPEED;
   let timer = null;
@@ -1212,6 +1443,48 @@ function playMatchOnScreen(match, sim, onContinue) {
     }
     const ds = getDisplayStats();
     document.getElementById("match-stats").innerHTML = renderMatchStats(ds.home, ds.away);
+    renderParallelsPanel();
+  };
+
+  const renderParallelsPanel = () => {
+    const el = document.getElementById("match-parallels");
+    if (!el) return;
+    if (!parallelSims.length) {
+      el.innerHTML = `<h3>Outros Jogos</h3><p style="color:var(--muted);font-size:12px">Nenhum outro jogo nesta rodada.</p>`;
+      return;
+    }
+    // Agrupa por tipo
+    const groups = { copa_brasil: [], brasileirao_a: [], brasileirao_b: [] };
+    for (const ps of parallelSims) {
+      const key = ps.isCup ? "copa_brasil" : ps.compId;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(ps);
+    }
+    const groupTitle = { copa_brasil: "🏆 Copa", brasileirao_a: "📊 Série A", brasileirao_b: "📊 Série B" };
+
+    let html = `<h3 style="font-size:13px;margin-bottom:10px">Outros Jogos · ${sim.minute}'</h3>`;
+    for (const key of ["copa_brasil", "brasileirao_a", "brasileirao_b"]) {
+      const list = groups[key];
+      if (!list || !list.length) continue;
+      html += `<div style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:0.6px;margin:10px 0 6px">${groupTitle[key]}</div>`;
+      for (const ps of list) {
+        const sc = ps.sim.score;
+        const finished = ps.sim.isFinished();
+        html += `
+          <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:6px;padding:4px 6px;border-radius:4px;font-size:11px;background:${finished ? "rgba(255,255,255,0.02)" : "var(--bg-2)"};margin-bottom:3px">
+            <div style="text-align:right;color:${sc.home > sc.away ? "var(--accent)" : "var(--muted)"};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+              ${ps.home.shortName}
+            </div>
+            <div style="font-weight:700;min-width:32px;text-align:center;font-variant-numeric:tabular-nums">
+              ${sc.home}–${sc.away}
+            </div>
+            <div style="color:${sc.away > sc.home ? "var(--accent)" : "var(--muted)"};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+              ${ps.away.shortName}
+            </div>
+          </div>`;
+      }
+    }
+    el.innerHTML = html;
   };
 
   const renderControls = () => {
@@ -1347,10 +1620,23 @@ function playMatchOnScreen(match, sim, onContinue) {
     document.getElementById("btn-sub-close")?.addEventListener("click", closeSubPanel);
   };
 
+  const tickParallels = () => {
+    for (const ps of parallelSims) {
+      if (!ps.sim.isFinished()) {
+        ps.sim.tick();
+        if (ps.sim.minute === 60 || ps.sim.minute === 75) {
+          aiAutoSubsInteractive(ps.sim, "home", state.players, rng);
+          aiAutoSubsInteractive(ps.sim, "away", state.players, rng);
+        }
+      }
+    }
+  };
+
   const tick = () => {
     if (aborted || paused) return;
     sim.tick();
-    // IA do adversário: tenta substituir aos 60' e 75'
+    tickParallels();
+    // IA do adversário do usuário: subs em 60' e 75'
     if (sim.minute === 60 || sim.minute === 75) {
       const aiSide = userSide === "home" ? "away" : "home";
       aiAutoSubsInteractive(sim, aiSide, state.players, rng);
@@ -1375,16 +1661,36 @@ function playMatchOnScreen(match, sim, onContinue) {
     aborted = true;
     while (!sim.isFinished()) {
       sim.tick();
+      tickParallels();
       if (sim.minute === 60 || sim.minute === 75) {
         const aiSide = userSide === "home" ? "away" : "home";
         aiAutoSubsInteractive(sim, aiSide, state.players, rng);
       }
     }
+    // Garante que paralelos também terminem (caso já estivessem mais à frente)
+    for (const ps of parallelSims) {
+      while (!ps.sim.isFinished()) ps.sim.tick();
+    }
     renderMatch();
     finishMatch();
   };
 
+  // Aplica os resultados dos jogos paralelos ao estado.
+  const applyParallels = () => {
+    if (parallelsApplied) return;
+    parallelsApplied = true;
+    for (const ps of parallelSims) {
+      const r = ps.sim.getResult();
+      if (ps.isCup) {
+        applyCupLegToState(ps.match, r);
+      } else {
+        applyMatchResult(state, ps.match, r, state.competitions[ps.compId]);
+      }
+    }
+  };
+
   const finishMatch = () => {
+    applyParallels();
     document.getElementById("match-footer").innerHTML = `
       <button class="btn" id="btn-continue">Continuar ▶</button>
     `;
@@ -1452,6 +1758,239 @@ function renderMatchStats(h, a) {
       `;
     }).join("")}
   `;
+}
+
+// Resolução forçada: garante que todas as competições da temporada terminem,
+// incluindo copa (sorteando fases pendentes), e dispara endSeason + cria a
+// nova temporada. Usado como fallback quando a temporada trava por alguma
+// pendência (ex.: fase da copa não foi sorteada no momento certo).
+async function forceResolveSeason() {
+  const cup = state.competitions.copa_brasil;
+
+  // 1. Tenta sortear e jogar todas as fases da copa pendentes (em ordem)
+  if (cup) {
+    for (const phaseKey of cup.phaseOrder) {
+      const phase = cup.phases[phaseKey];
+      if (!phase.ties.length) {
+        try { drawPhase(cup, phaseKey, rng, state.teams); }
+        catch (e) { console.warn("Não foi possível sortear", phaseKey, e); break; }
+      }
+      for (const tie of phase.ties) {
+        for (const leg of tie.legs) {
+          if (!leg.played) {
+            const r = simulateMatch({
+              homeTeam: state.teams[leg.homeTeamId],
+              awayTeam: state.teams[leg.awayTeamId],
+              playersById: state.players, rng,
+            });
+            applyCupLegToState(leg, r);
+          }
+        }
+      }
+    }
+    // Define campeão se a final foi completada
+    if (cup.phases.final?.complete && !cup.champion) {
+      const finalTie = cup.phases.final.ties[0];
+      cup.champion = finalTie.winnerId;
+      state.teams[cup.champion].trophies.push({ competitionId: "copa_brasil", season: state.season });
+      log(`🏆 ${state.teams[cup.champion].name} é CAMPEÃO DA COPA DO BRASIL ${state.season}!`);
+    }
+  }
+
+  // 2. Garante que as duas ligas + Série C estão 100% jogadas
+  //    (loop interno porque fases da C só criam ao terminar a anterior)
+  for (let pass = 0; pass < 4; pass++) {
+    for (const compId of ["brasileirao_a", "brasileirao_b", ...SERIE_C_STAGE_IDS]) {
+      const comp = state.competitions[compId];
+      if (!comp) continue;
+      for (const m of comp.fixtures) {
+        if (!m.played) {
+          const r = simulateMatch({
+            homeTeam: state.teams[m.homeTeamId],
+            awayTeam: state.teams[m.awayTeamId],
+            playersById: state.players, rng,
+          });
+          applyMatchResult(state, m, r, comp);
+        }
+      }
+      recalcTopScorers(comp, state.players);
+    }
+    // Avança fases da Série C se aplicável
+    advanceSerieCIfNeeded();
+  }
+
+  // 3. Dispara endSeason e cria nova copa
+  const report = endSeason(state, rng);
+  generateSeasonEndNews(state, report);
+  state.competitions.copa_brasil = createCupCompetition({
+    season: state.season,
+    allTeams: state.teams,
+    libertaQualifiers: report.libertaQualifiers || null,
+    seriesATeamIds: state.competitions.brasileirao_a.teams,
+  });
+  showSeasonRecap(report);
+
+  try { await saveGame(state); } catch (e) { console.warn("Save falhou:", e); }
+  render();
+}
+
+// Roda quando todas as partidas da rodada já estão jogadas (paralelas incluídas).
+// Cuida de finanças, notícias, IA de mercado, virada de temporada e save.
+async function closeWeek(round) {
+  const allResults = gatherRoundResults(round);
+
+  // Recalcula artilharia de todas as competições
+  for (const compId of ["brasileirao_a", "brasileirao_b", ...SERIE_C_STAGE_IDS]) {
+    const comp = state.competitions[compId];
+    if (comp) recalcTopScorers(comp, state.players);
+  }
+
+  // Transições de fase da Série C
+  advanceSerieCIfNeeded();
+
+  // Campeão da Copa?
+  const cup = state.competitions.copa_brasil;
+  if (cup && cup.phases.final?.complete && !cup.champion) {
+    const finalTie = cup.phases.final.ties[0];
+    cup.champion = finalTie.winnerId;
+    state.teams[cup.champion].trophies.push({ competitionId: "copa_brasil", season: state.season });
+    log(`🏆 ${state.teams[cup.champion].name} é CAMPEÃO DA COPA DO BRASIL ${state.season}!`);
+    state.inbox = state.inbox || [];
+    state.inbox.push({
+      id: `n_cup_champ_${state.season}`,
+      date: state.currentDate, type: "season", priority: "high",
+      subject: `🏆 ${state.teams[cup.champion].name} conquista a Copa do Brasil ${state.season}!`,
+      body: `Após vencer ${state.teams[finalTie.teamAId === cup.champion ? finalTie.teamBId : finalTie.teamAId].name} no agregado da final, o ${state.teams[cup.champion].name} levantou a taça da Copa do Brasil.`,
+      read: false, teamFocus: cup.champion,
+    });
+  }
+
+  // Finanças
+  const tick = weeklyTick(state, allResults, MY_COMP_ID);
+  const myRev = tick.revenues.find(r => r.teamId === MY_TEAM_ID);
+  const myWages = tick.wages.find(w => w.teamId === MY_TEAM_ID);
+  log(`Rodada ${round} fechada · ${myRev ? `bilheteria +R$ ${fmt(myRev.revenue)} · ` : ""}folha -R$ ${fmt(myWages.wagesPaid)}.`);
+
+  // Suspensões + IA de mercado
+  decrementSuspensions(state, allResults.flatMap(r => [r.homeTeamId, r.awayTeamId]));
+  const aiMoves = runAITransfers(state, rng, { excludeTeamId: MY_TEAM_ID });
+  for (const m of aiMoves) log(`🔁 ${m.message}`);
+
+  // Manchetes
+  generateNewsForRound(state, round, allResults, MY_TEAM_ID);
+
+  validateLineup();
+
+  // Virada de temporada
+  if (isSeasonOver(state) && (!cup || cup.champion || !cup.phases.final.ties.length)) {
+    const report = endSeason(state, rng);
+    generateSeasonEndNews(state, report);
+    state.competitions.copa_brasil = createCupCompetition({
+      season: state.season,
+      allTeams: state.teams,
+      libertaQualifiers: report.libertaQualifiers || null,
+      seriesATeamIds: state.competitions.brasileirao_a.teams,
+    });
+    showSeasonRecap(report);
+  }
+
+  try { await saveGame(state); } catch (e) { console.warn("Save falhou:", e); }
+}
+
+// Reconstrói a lista de resultados a partir das fixtures já jogadas da rodada.
+function gatherRoundResults(round) {
+  const results = [];
+  for (const compId of ["brasileirao_a", "brasileirao_b", ...SERIE_C_STAGE_IDS]) {
+    const comp = state.competitions[compId];
+    if (!comp) continue;
+    for (const m of getMatchesOfRound(comp, round)) {
+      if (m.played) results.push(toResultShape(m));
+    }
+  }
+  const cup = state.competitions.copa_brasil;
+  if (cup) {
+    for (const leg of getCupLegsForRound(cup, round)) {
+      if (leg.played) results.push(toResultShape(leg));
+    }
+  }
+  return results;
+}
+
+// Detecta fim de fase da Série C e cria a próxima.
+// Também ajusta MY_COMP_ID se o usuário avançar de fase.
+function advanceSerieCIfNeeded() {
+  const meta = state.serieCMeta;
+  if (!meta || meta.currentPhase === "done") return;
+
+  // Fase 1 → Grupos
+  if (meta.currentPhase === "phase1") {
+    const p1 = state.competitions.brasileirao_c_p1;
+    if (p1 && p1.fixtures.every(m => m.played)) {
+      const { groupA, groupB, relegated } = createSerieCGroups({
+        season: state.season,
+        phase1: p1,
+      });
+      state.competitions.brasileirao_c_ga = groupA;
+      state.competitions.brasileirao_c_gb = groupB;
+      meta.relegated = relegated;
+      meta.currentPhase = "groups";
+
+      // Se o usuário está na Série C e classificou, atualiza MY_COMP_ID
+      if (MY_COMP_ID === "brasileirao_c_p1") {
+        if (groupA.teams.includes(MY_TEAM_ID)) MY_COMP_ID = "brasileirao_c_ga";
+        else if (groupB.teams.includes(MY_TEAM_ID)) MY_COMP_ID = "brasileirao_c_gb";
+        // Senão: time eliminado, MY_COMP_ID permanece em p1 (sem mais jogos)
+      }
+
+      log(`Série C → Quadrangulares definidos. Grupo A: ${groupA.teams.map(id => state.teams[id].shortName).join(", ")}. Grupo B: ${groupB.teams.map(id => state.teams[id].shortName).join(", ")}.`);
+    }
+  }
+  // Grupos → Final
+  else if (meta.currentPhase === "groups") {
+    const ga = state.competitions.brasileirao_c_ga;
+    const gb = state.competitions.brasileirao_c_gb;
+    const gaDone = ga && ga.fixtures.every(m => m.played);
+    const gbDone = gb && gb.fixtures.every(m => m.played);
+    if (gaDone && gbDone) {
+      meta.promoted = getSerieCPromoted({ groupA: ga, groupB: gb });
+      const finalComp = createSerieCFinal({ season: state.season, groupA: ga, groupB: gb });
+      state.competitions.brasileirao_c_final = finalComp;
+      meta.currentPhase = "final";
+
+      if ([MY_COMP_ID, "brasileirao_c_ga", "brasileirao_c_gb"].includes(MY_COMP_ID)) {
+        if (finalComp.teams.includes(MY_TEAM_ID)) MY_COMP_ID = "brasileirao_c_final";
+      }
+
+      log(`Série C → Final: ${state.teams[finalComp.teamAId].name} × ${state.teams[finalComp.teamBId].name}. Promovidos para a Série B: ${meta.promoted.map(id => state.teams[id].shortName).join(", ")}.`);
+    }
+  }
+  // Final → Campeão
+  else if (meta.currentPhase === "final") {
+    const fn = state.competitions.brasileirao_c_final;
+    if (fn && fn.fixtures.every(m => m.played) && !meta.champion) {
+      const champId = decideSerieCChampion(fn, rng);
+      meta.champion = champId;
+      meta.currentPhase = "done";
+      state.teams[champId].trophies.push({ competitionId: "brasileirao_c", season: state.season });
+      log(`🏆 ${state.teams[champId].name} é CAMPEÃO DA SÉRIE C ${state.season}!`);
+      state.inbox = state.inbox || [];
+      state.inbox.push({
+        id: `n_serie_c_champ_${state.season}`,
+        date: state.currentDate, type: "season", priority: "high",
+        subject: `🏆 ${state.teams[champId].name} conquista a Série C ${state.season}!`,
+        body: `No agregado da final, o ${state.teams[champId].name} levou a taça da Série C. Promovidos à Série B: ${meta.promoted.map(id => state.teams[id]?.name).join(", ")}.`,
+        read: false, teamFocus: champId,
+      });
+    }
+  }
+}
+
+function toResultShape(m) {
+  return {
+    homeTeamId: m.homeTeamId, awayTeamId: m.awayTeamId,
+    score: m.score, events: m.events,
+    stats: m.stats, lineups: m.lineups,
+  };
 }
 
 async function finalizeRound(round) {

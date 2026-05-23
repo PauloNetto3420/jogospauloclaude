@@ -1,6 +1,6 @@
 // Fábrica de campeonatos + gerador de tabela (algoritmo round-robin).
 
-export function createCompetition({ id, name, tier, season, teamIds, rules }) {
+export function createCompetition({ id, name, tier, season, teamIds, legs = 2, roundOffset = 0, rules }) {
   return {
     id,
     name,
@@ -9,7 +9,7 @@ export function createCompetition({ id, name, tier, season, teamIds, rules }) {
     season,
     teams: [...teamIds],
     rules: {
-      rounds: 2,
+      rounds: legs,
       promotion: 0,
       relegation: 4,
       promotedTo: null,
@@ -18,7 +18,7 @@ export function createCompetition({ id, name, tier, season, teamIds, rules }) {
       pointsDraw: 1,
       ...rules,
     },
-    fixtures: generateFixtures(teamIds, season),
+    fixtures: generateFixtures(teamIds, season, legs, roundOffset),
     standings: teamIds.map(tid => emptyStanding(tid)),
     topScorers: [],
     champion: null,
@@ -41,7 +41,7 @@ function emptyStanding(teamId) {
 // mando da partida do pivô entre rodadas pares e ímpares. Resultado: cada
 // time joga 9 ou 10 partidas em casa no turno (de 19 totais), e o oposto
 // no returno — totalizando 19H/19A perfeitos no campeonato inteiro.
-function generateFixtures(teamIds, season) {
+function generateFixtures(teamIds, season, legs = 2, roundOffset = 0) {
   const teams = [...teamIds];
   if (teams.length % 2 === 1) teams.push(null); // bye fictício
   const n = teams.length;
@@ -56,23 +56,23 @@ function generateFixtures(teamIds, season) {
     for (let i = 0; i < half; i++) {
       let home = arr[i];
       let away = arr[n - 1 - i];
-      // Em rodadas ímpares, inverte o mando da partida do pivô (i=0).
-      // Isso garante que arr[0] não fique sempre em casa no turno.
-      if (i === 0 && round % 2 === 1) {
-        [home, away] = [away, home];
-      }
-      if (home && away) {
-        fixtures.push(makeMatch(++mid, round + 1, home, away, season));
-      }
+      if (i === 0 && round % 2 === 1) [home, away] = [away, home];
+      if (home && away) fixtures.push(makeMatch(++mid, round + 1, home, away, season));
     }
-    // rotaciona (fixa o primeiro)
     arr = [arr[0], arr[n - 1], ...arr.slice(1, n - 1)];
   }
 
-  // returno (mesmos confrontos com mando invertido)
-  const firstLeg = fixtures.slice();
-  for (const m of firstLeg) {
-    fixtures.push(makeMatch(++mid, m.round + (n - 1), m.awayTeamId, m.homeTeamId, season));
+  // returno (apenas se legs === 2)
+  if (legs >= 2) {
+    const firstLeg = fixtures.slice();
+    for (const m of firstLeg) {
+      fixtures.push(makeMatch(++mid, m.round + (n - 1), m.awayTeamId, m.homeTeamId, season));
+    }
+  }
+
+  // Aplica offset (usado por fases que vêm depois de outras competições)
+  if (roundOffset > 0) {
+    for (const f of fixtures) f.round += roundOffset;
   }
 
   return fixtures;

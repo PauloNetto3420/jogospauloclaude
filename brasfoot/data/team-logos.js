@@ -3,7 +3,7 @@
 // Quando um time não tem logo, fallback é a bolinha com a cor primária.
 
 export const TEAM_LOGOS = {
-  // Série A (alfabético)
+  // ===== Série A =====
   ath:  "src/images/athletico_paranaense.png",
   atm:  "src/images/atletico_mineiro.png",
   bah:  "src/images/bahia.png",
@@ -12,7 +12,7 @@ export const TEAM_LOGOS = {
   cha:  "src/images/chapeco.png",
   cor:  "src/images/corinthians.png",
   cou:  "src/images/coritiba.png",
-  cru:   "src/images/cruzeiro.png",
+  cru:  "src/images/cruzeiro.png",
   fla:  "src/images/fla.png",
   flu:  "src/images/fluminense.png",
   gre:  "src/images/gremio.png",
@@ -24,4 +24,48 @@ export const TEAM_LOGOS = {
   spo:  "src/images/saopaulo.png",
   vas:  "src/images/vasco.png",
   vit:  "src/images/vitoria.png",
+
+  // ===== Série B =====
+  ago:  "src/images/atlego.png",
+  amg:  "src/images/ammg.png",
+  atc:  "src/images/aletico_del_rey_mg.png",
+  ava:  "src/images/avai.gif",
+  ber:  "src/images/sao_bernarndo_sp.png",
+  bfc:  "src/images/botasp.png",
+  cea:  "src/images/ceara.png",
+  crb:  "src/images/crb.gif",
+  // cri: Criciúma ainda sem imagem — usa fallback
+  cui:  "src/images/cuiaba_mt.png",
+  for:  "src/images/fortaleza.png",
+  goi:  "src/images/goias.png",
+  juv:  "src/images/juventude.png",
+  lon:  "src/images/londrina_pr.png",
+  nau:  "src/images/nautico.png",
+  nov:  "src/images/novorizontino_novo.jpg",
+  ope:  "src/images/operario_pr.png",
+  pon:  "src/images/pontepreta.gif",
+  spt:  "src/images/sport.gif",
+  vil:  "src/images/vilanova.png",
+
+  // ===== Série C =====
+  amaz: "src/images/amazonas_fc_am.png",
+  anap: "src/images/anapolis.png",
+  bar:  "src/images/barra_sc.png",
+  bpb:  "src/images/botapb.png",
+  brc:  "src/images/brusque.png",
+  cax:  "src/images/caxias.gif",
+  conf: "src/images/confianca_se.png",
+  fer:  "src/images/ferroviaria.png",
+  fig:  "src/images/figue.gif",
+  flo:  "src/images/floresta_ce.png",
+  gua:  "src/images/guarani.gif",
+  itl:  "src/images/intl.png",
+  ita:  "src/images/itabaiana.gif",
+  itu:  "src/images/ituano.png",
+  mar:  "src/images/maranhao.png",
+  mga:  "src/images/gremio_maringa.png",
+  pai:  "src/images/paysandu_pa.png",
+  stc:  "src/images/santacruz.png",
+  vol:  "src/images/volta.png",
+  ypi:  "src/images/ypiranga_rs.png",
 };

@@ -12,11 +12,15 @@ import { createRng } from "../utils/rng.js";
 // -------------------- Configuração balanceável --------------------
 const CONFIG = {
   homeAdvantage: 0.08,            // +8% em ataque e defesa do mandante
-  baseAttackChancePerMin: 0.18,   // probabilidade base de uma "jogada perigosa" por minuto/time
-  yellowChancePerMin: 0.012,      // ~1 amarelo a cada ~83 min → ~1 por time/partida
+  baseAttackChancePerMin: 0.10,   // ~1.4 gols/time/jogo em times médios (era 0.18 → ~2.7)
+  attackRatioPower: 1.3,          // expoente na razão atk/def — > 1 amplia diferenças
+  finishingVsGkRatio: 0.95,       // peso do finalizador na chance de gol vs goleiro
+  blowoutDampen: 0.75,            // multiplicador no ataque do time vencendo por 3+
+  comebackBoost: 1.10,            // multiplicador no ataque do time perdendo por 3+
+  yellowChancePerMin: 0.012,      // ~1 amarelo por time/partida
   redChancePerMin: 0.0008,        // raro
-  injuryChancePerMin: 0.00015,    // ~1 lesão a cada ~7 partidas por time (estatística realista)
-  fatigueLossPerMin: 0.4,         // fitness perdido por minuto em campo
+  injuryChancePerMin: 0.00015,    // ~1 lesão a cada ~7 partidas por time
+  fatigueLossPerMin: 0.4,
 };
 
 // Formações disponíveis. Cada uma define:
@@ -426,10 +430,25 @@ function applyFormation(str, formation) {
 function tickSide({ minute, rng, events, stats, score, side, team, xi, attackStr, oppDefense, oppGK, carded }) {
   if (xi.length < 7) return; // time abandonado por expulsões
 
-  // 1) Jogada perigosa?
+  // Dampener de placar: time vencendo por 3+ acelera menos, perdendo por 3+ pressiona mais.
+  // Efeito acumulativo: gap=3 → 0.75x, gap=4 → 0.56x, gap=5 → 0.42x, etc.
+  const ourScore = score[side];
+  const theirScore = score[side === "home" ? "away" : "home"];
+  const gap = ourScore - theirScore;
+  let effectiveAttack = attackStr;
+  if (gap >= 3) {
+    const steps = Math.min(gap - 2, 4); // saturação em gap=6 (~0.32x)
+    effectiveAttack *= Math.pow(CONFIG.blowoutDampen, steps);
+  } else if (gap <= -3) {
+    effectiveAttack *= CONFIG.comebackBoost;
+  }
+
+  // 1) Jogada perigosa? Razão atk/def elevada a um expoente para amplificar diferenças.
+  const aPow = Math.pow(effectiveAttack, CONFIG.attackRatioPower);
+  const dPow = Math.pow(oppDefense, CONFIG.attackRatioPower);
   const dangerProb =
     CONFIG.baseAttackChancePerMin *
-    (attackStr / (attackStr + oppDefense)) *
+    (aPow / (aPow + dPow)) *
     (xi.length / 11); // menos jogadores = menos chances
 
   if (rng.chance(dangerProb)) {
@@ -441,8 +460,8 @@ function tickSide({ minute, rng, events, stats, score, side, team, xi, attackStr
     if (rng.chance(onTargetProb)) {
       stats[side].shotsOnTarget++;
 
-      // Chance de defesa do GK
-      const saveProb = oppGK / (oppGK + shooter.attributes.finishing * 1.1);
+      // Chance de defesa do GK — peso < 1 em finishing dá leve vantagem ao goleiro
+      const saveProb = oppGK / (oppGK + shooter.attributes.finishing * CONFIG.finishingVsGkRatio);
       if (!rng.chance(saveProb)) {
         score[side]++;
         events.push({
