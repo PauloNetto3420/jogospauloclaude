@@ -19,13 +19,18 @@ import { isSeasonOver, endSeason } from "./engine/season-end.js";
 import { generateNewsForRound, generateSeasonEndNews } from "./engine/news.js";
 import {
   createCupCompetition, getCupLegsForRound, applyCupLegResult,
-  maybeDrawNextPhase, drawPhase, CUP_PHASE_ORDER, CUP_PHASE_META,
+  maybeDrawNextPhase, drawPhase, payPhasePrizes,
+  CUP_PHASE_ORDER, CUP_PHASE_META, CHAMPION_BONUS,
 } from "./engine/cup.js";
 import {
   createSerieCPhase1, createSerieCGroups, createSerieCFinal,
   decideSerieCChampion, getSerieCPromoted,
   SERIE_C_STAGE_IDS, isSerieCStage,
 } from "./engine/serie-c.js";
+import {
+  generateProspectsForRound, promoteProspect, sellProspect, releaseProspect,
+  ensureAcademy, MAX_ACADEMY_SLOTS, PROSPECT_INTERVAL,
+} from "./engine/academy.js";
 import { saveGame, loadGame, listSaves, deleteSave } from "./db.js";
 import { SERIE_A_SEED, SERIE_B_SEED, SERIE_C_SEED } from "../data/teams.seed.js";
 import { TEAM_LOGOS } from "../data/team-logos.js";
@@ -50,6 +55,7 @@ const VIEWS = [
   { id: "cup",       label: "Copa do Brasil",icon: "🏆" },
   { id: "calendar",  label: "Calendário",    icon: "📅" },
   { id: "market",    label: "Mercado",       icon: "💼" },
+  { id: "academy",   label: "Base",          icon: "🌱" },
   { id: "finance",   label: "Finanças",      icon: "💰" },
   { id: "inbox",     label: "Inbox",         icon: "📰" },
 ];
@@ -289,7 +295,18 @@ async function startGame(teamId) {
 // -------------------- Render principal --------------------
 function renderShell() {
   const my = state.teams[MY_TEAM_ID];
+  // Se a competição atual sumiu (ex.: subcomps da Série C após endSeason),
+  // recoloca o usuário na sua nova divisão antes de seguir.
+  if (!state.competitions[MY_COMP_ID]) {
+    const resolved = resolveUserCompetition();
+    if (resolved) { MY_COMP_ID = resolved; standingsView = MY_COMP_ID; }
+  }
   const comp = state.competitions[MY_COMP_ID];
+  if (!comp) {
+    // Ainda nada — não trava a UI, apenas avisa
+    console.warn("MY_COMP_ID inválido e nenhuma competição encontrada para", MY_TEAM_ID);
+    return;
+  }
   const round = getCurrentRound(comp);
   const total = Math.max(...comp.fixtures.map(m => m.round));
 
@@ -378,6 +395,7 @@ function render() {
   if (view === "cup")       $main.innerHTML = renderCup();
   if (view === "calendar")  $main.innerHTML = renderCalendar();
   if (view === "market")    $main.innerHTML = renderMarket();
+  if (view === "academy")   $main.innerHTML = renderAcademy();
   if (view === "finance")   $main.innerHTML = renderFinance();
   if (view === "inbox")     $main.innerHTML = renderInbox();
   wireView();
@@ -757,6 +775,76 @@ function renderPlayerTable(players, kind) {
   `;
 }
 
+// -------------------- View: Base (Academia) --------------------
+function renderAcademy() {
+  const team = state.teams[MY_TEAM_ID];
+  const academy = ensureAcademy(team);
+  const prospects = academy.prospects.map(pid => state.players[pid]).filter(Boolean)
+    .sort((a, b) => b.potential - a.potential);
+
+  const round = getCurrentRound(state.competitions[MY_COMP_ID]);
+  const nextProspectIn = round != null
+    ? PROSPECT_INTERVAL - ((round - 1) % PROSPECT_INTERVAL) - 1
+    : null;
+
+  return `
+    <div class="view-title">Categoria de Base</div>
+    <div class="view-sub">
+      Slots: <b>${prospects.length}/${MAX_ACADEMY_SLOTS}</b>
+      ${nextProspectIn != null ? ` · Próximo prospecto em ~${nextProspectIn === 0 ? "esta" : nextProspectIn + " rodada" + (nextProspectIn > 1 ? "s" : "")}` : ""}
+      ${prospects.length >= MAX_ACADEMY_SLOTS ? " · ⚠️ Base cheia — libere vagas para receber novos" : ""}
+    </div>
+
+    <div class="card">
+      <h3>Prospectos da Base do ${team.name}</h3>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:12px">
+        Jogadores de 14-17 anos. Aos 19 são automaticamente liberados se não forem promovidos.
+        Promova ao elenco, venda (50% do valor de mercado) ou libere.
+      </p>
+      ${prospects.length === 0 ? `
+        <p style="color:var(--muted);font-size:13px;padding:14px 0">
+          Nenhum prospecto no momento. Aguarde a próxima rodada — a categoria de base
+          revela novos talentos a cada ${PROSPECT_INTERVAL} rodadas.
+        </p>
+      ` : `
+        <table>
+          <thead>
+            <tr>
+              <th>Nome</th><th>Pos</th><th>Idade</th><th>OVR</th><th>POT</th>
+              <th>Traits</th><th>Valor (50%)</th><th>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${prospects.map(p => {
+              const sellPrice = Math.max(50_000, Math.round(p.marketValue * 0.5));
+              const traitsHtml = (p.traits || []).slice(0, 2).map(t => `<span class="trait-chip ${
+                t === "promessa" || t === "finalizador" || t === "lider_nato" || t === "tecnico" || t === "veloz" || t === "cabeceador" ? "positive" :
+                t === "lesoes_frequentes" || t === "inconsistente" || t === "pe_de_obra" ? "negative" : ""
+              }">${t}</span>`).join("") || "—";
+              return `
+                <tr>
+                  <td><b data-player="${p.id}">${p.name}</b></td>
+                  <td><span class="badge badge-pos">${p.position}</span></td>
+                  <td>${p.age}</td>
+                  <td><span class="badge badge-ovr ${ovrClass(p.overall)}">${p.overall}</span></td>
+                  <td><b style="color:var(--accent-2)">${p.potential}</b></td>
+                  <td style="font-size:11px">${traitsHtml}</td>
+                  <td>R$ ${fmt(sellPrice)}</td>
+                  <td>
+                    <button class="btn btn-sm" data-academy="promote" data-pid="${p.id}">Promover</button>
+                    <button class="btn btn-sm btn-secondary" data-academy="sell" data-pid="${p.id}">Vender</button>
+                    <button class="btn btn-sm btn-secondary" data-academy="release" data-pid="${p.id}" style="color:var(--danger)">Liberar</button>
+                  </td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        </table>
+      `}
+    </div>
+  `;
+}
+
 // -------------------- View: Finanças --------------------
 function renderFinance() {
   const my = state.teams[MY_TEAM_ID];
@@ -853,6 +941,10 @@ function renderCupPhase(cup, phaseKey) {
     </div>`;
   }
 
+  const prizeNote = meta.prize
+    ? `<span style="color:var(--muted);font-size:10px;margin-right:8px">💰 R$ ${fmt(meta.prize)}</span>`
+    : "";
+
   return `
     <div class="card" style="padding:14px 18px;margin-bottom:10px;border-left:3px solid ${accent}">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
@@ -861,7 +953,10 @@ function renderCupPhase(cup, phaseKey) {
           ${meta.legs === 2 ? `<span style="color:var(--muted);font-size:11px;font-weight:400;margin-left:6px">ida e volta</span>` : ""}
           ${isCurrent ? ` <span style="color:var(--accent);font-size:11px;font-weight:600;margin-left:6px">EM ANDAMENTO</span>` : ""}
         </h3>
-        <span style="color:var(--muted);font-size:11px">Rodadas ${cup.schedule[phaseKey].join(" / ")}</span>
+        <div>
+          ${prizeNote}
+          <span style="color:var(--muted);font-size:11px">Rodadas ${cup.schedule[phaseKey].join(" / ")}</span>
+        </div>
       </div>
       ${body}
     </div>
@@ -1194,6 +1289,11 @@ function wireView() {
   $main.querySelectorAll("[data-cal-comp]").forEach(btn => {
     btn.onclick = () => { calendarCompId = btn.dataset.calComp; render(); };
   });
+
+  // Ações da aba Base
+  $main.querySelectorAll("[data-academy]").forEach(btn => {
+    btn.onclick = () => handleAcademyAction(btn.dataset.academy, btn.dataset.pid);
+  });
   $main.querySelectorAll("[data-match]").forEach(el => {
     el.onclick = () => openMatchDetail(el.dataset.match, calendarCompId || MY_COMP_ID);
   });
@@ -1203,6 +1303,23 @@ function wireView() {
   if (currentEl) {
     setTimeout(() => currentEl.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
   }
+}
+
+function handleAcademyAction(action, pid) {
+  const p = state.players[pid];
+  if (!p) return;
+  let res;
+  if (action === "promote") {
+    res = promoteProspect(state, MY_TEAM_ID, pid);
+  } else if (action === "sell") {
+    if (!confirm(`Vender ${p.name} por R$ ${fmt(Math.max(50_000, Math.round(p.marketValue * 0.5)))}?`)) return;
+    res = sellProspect(state, MY_TEAM_ID, pid);
+  } else if (action === "release") {
+    if (!confirm(`Liberar ${p.name} da base? Esta ação não tem retorno.`)) return;
+    res = releaseProspect(state, MY_TEAM_ID, pid);
+  }
+  if (res) log((res.ok ? "🌱 " : "❌ ") + res.message);
+  render();
 }
 
 function handleBid(kind, pid) {
@@ -1310,7 +1427,8 @@ function collectParallelMatches(round, excludeMatch) {
   const cup = state.competitions.copa_brasil;
   if (cup) {
     for (const leg of getCupLegsForRound(cup, round)) {
-      if (!leg.played && leg.id !== excludeMatch.id) {
+      // Identidade do objeto, NÃO por id (IDs podem se repetir entre competições)
+      if (!leg.played && leg !== excludeMatch) {
         list.push({ match: leg, isCup: true, compId: "copa_brasil" });
       }
     }
@@ -1321,7 +1439,7 @@ function collectParallelMatches(round, excludeMatch) {
     const c = state.competitions[compId];
     if (!c) continue;
     for (const m of getMatchesOfRound(c, round)) {
-      if (!m.played && m.id !== excludeMatch.id) {
+      if (!m.played && m !== excludeMatch) {
         list.push({ match: m, isCup: false, compId });
       }
     }
@@ -1848,19 +1966,53 @@ async function closeWeek(round) {
   // Transições de fase da Série C
   advanceSerieCIfNeeded();
 
-  // Campeão da Copa?
+  // Categoria de base — gera prospectos periodicamente
+  const newProspects = generateProspectsForRound(state, round, rng);
+  const myNew = newProspects.find(np => np.teamId === MY_TEAM_ID);
+  if (myNew) {
+    const p = state.players[myNew.playerId];
+    log(`🌱 Novo prospecto na base: ${p.name} (${p.position}, ${p.age}a, POT ${p.potential}).`);
+    state.inbox = state.inbox || [];
+    state.inbox.push({
+      id: `n_prospect_${myNew.playerId}`,
+      date: state.currentDate,
+      type: "highlight",
+      priority: p.potential >= 80 ? "high" : "normal",
+      subject: `🌱 Novo prospecto na base: ${p.name}${p.potential >= 80 ? " ✨" : ""}`,
+      body: `${p.name} (${p.position}, ${p.age} anos) chegou à base — OVR ${p.overall}, POT ${p.potential}. Acesse a aba Base para decidir o futuro do garoto.`,
+      read: false,
+      teamFocus: MY_TEAM_ID,
+    });
+  }
+
+  // Premiação por fase da Copa — paga quem ENTROU em cada fase, idempotente
   const cup = state.competitions.copa_brasil;
+  if (cup) {
+    for (const phaseKey of CUP_PHASE_ORDER) {
+      const result = payPhasePrizes(state, cup, phaseKey);
+      if (result) {
+        const myReceived = result.teams.includes(MY_TEAM_ID);
+        if (myReceived) {
+          log(`💰 Cota da Copa (${result.phaseName}): +R$ ${fmt(result.prize)}.`);
+        }
+      }
+    }
+  }
+
+  // Campeão da Copa?
   if (cup && cup.phases.final?.complete && !cup.champion) {
     const finalTie = cup.phases.final.ties[0];
     cup.champion = finalTie.winnerId;
     state.teams[cup.champion].trophies.push({ competitionId: "copa_brasil", season: state.season });
-    log(`🏆 ${state.teams[cup.champion].name} é CAMPEÃO DA COPA DO BRASIL ${state.season}!`);
+    // Bônus do campeão (além do prêmio de chegar à final, que já foi pago)
+    state.teams[cup.champion].finances.balance += CHAMPION_BONUS;
+    log(`🏆 ${state.teams[cup.champion].name} é CAMPEÃO DA COPA DO BRASIL ${state.season}! (+R$ ${fmt(CHAMPION_BONUS)})`);
     state.inbox = state.inbox || [];
     state.inbox.push({
       id: `n_cup_champ_${state.season}`,
       date: state.currentDate, type: "season", priority: "high",
       subject: `🏆 ${state.teams[cup.champion].name} conquista a Copa do Brasil ${state.season}!`,
-      body: `Após vencer ${state.teams[finalTie.teamAId === cup.champion ? finalTie.teamBId : finalTie.teamAId].name} no agregado da final, o ${state.teams[cup.champion].name} levantou a taça da Copa do Brasil.`,
+      body: `Após vencer ${state.teams[finalTie.teamAId === cup.champion ? finalTie.teamBId : finalTie.teamAId].name} no agregado da final, o ${state.teams[cup.champion].name} levantou a taça da Copa do Brasil. Bônus de campeão: R$ ${fmt(CHAMPION_BONUS)}.`,
       read: false, teamFocus: cup.champion,
     });
   }
@@ -2080,29 +2232,63 @@ async function finalizeRound(round) {
 }
 
 function showSeasonRecap(report) {
-  const champA = state.teams[report.champions.brasileirao_a]?.name ?? "?";
-  const champB = state.teams[report.champions.brasileirao_b]?.name ?? "?";
-  const relegated = report.relegated.map(id => state.teams[id]?.shortName).join(", ");
-  const promoted = report.promoted.map(id => state.teams[id]?.shortName).join(", ");
+  try {
+    const champA = state.teams[report.champions.brasileirao_a]?.name ?? "?";
+    const champB = state.teams[report.champions.brasileirao_b]?.name ?? "?";
+    const champCId = state.serieCMeta?.champion;
+    const champC = champCId ? state.teams[champCId]?.name : null;
+    const relegated = (report.relegated || []).map(id => state.teams[id]?.shortName).filter(Boolean).join(", ") || "—";
+    const promoted = (report.promoted || []).map(id => state.teams[id]?.shortName).filter(Boolean).join(", ") || "—";
+    const relegatedToC = (report.relegatedToC || []).map(id => state.teams[id]?.shortName).filter(Boolean).join(", ") || "—";
+    const promotedFromC = (report.promotedFromC || []).map(id => state.teams[id]?.shortName).filter(Boolean).join(", ") || "—";
 
-  log(`🏆 Fim da temporada ${report.season}. Campeão A: ${champA}. Campeão B: ${champB}.`);
-  log(`⬇️ Rebaixados: ${relegated}. ⬆️ Promovidos: ${promoted}.`);
-  log(`👋 ${report.retired.length} jogadores se aposentaram. ${report.freeAgents.length} contratos vencidos.`);
+    log(`🏆 Fim da temporada ${report.season}. Campeão A: ${champA}. Campeão B: ${champB}.${champC ? ` Campeão C: ${champC}.` : ""}`);
+    log(`A↔B: ⬇️ ${relegated} ⬆️ ${promoted}. B↔C: ⬇️ ${relegatedToC} ⬆️ ${promotedFromC}.`);
+    log(`👋 ${report.retired.length} aposentadorias · ${report.freeAgents.length} contratos vencidos.`);
 
-  // Atualiza qual competição o usuário está
-  if (state.competitions.brasileirao_a.teams.includes(MY_TEAM_ID)) MY_COMP_ID = "brasileirao_a";
-  else if (state.competitions.brasileirao_b.teams.includes(MY_TEAM_ID)) MY_COMP_ID = "brasileirao_b";
-  standingsView = MY_COMP_ID;
+    // Atualiza MY_COMP_ID com base na nova divisão do usuário.
+    // (Importante: as subcomps brasileirao_c_ga/_gb/_final foram deletadas
+    //  em endSeason — sem este reset, MY_COMP_ID pode ficar pendurado.)
+    const newMyComp = resolveUserCompetition();
+    if (newMyComp) {
+      MY_COMP_ID = newMyComp;
+      standingsView = MY_COMP_ID;
+    }
 
-  // Reescala automaticamente para a próxima temporada
-  state.teams[MY_TEAM_ID].lineup = autoLineup(state.teams[MY_TEAM_ID]);
+    // Reescala automaticamente para a próxima temporada
+    if (state.teams[MY_TEAM_ID]) {
+      state.teams[MY_TEAM_ID].lineup = autoLineup(state.teams[MY_TEAM_ID]);
+    }
 
-  alert(
-    `Fim da temporada ${report.season}!\n\n` +
-    `🏆 Série A: ${champA}\n🏆 Série B: ${champB}\n\n` +
-    `⬇️ Rebaixados da A: ${relegated}\n⬆️ Promovidos da B: ${promoted}\n\n` +
-    `Você dirige o ${state.teams[MY_TEAM_ID].name} na temporada ${state.season} (${state.competitions[MY_COMP_ID].name}).`
-  );
+    const myCompName = state.competitions[MY_COMP_ID]?.name ?? "—";
+    alert(
+      `Fim da temporada ${report.season}!\n\n` +
+      `🏆 Série A: ${champA}\n🏆 Série B: ${champB}` +
+      (champC ? `\n🏆 Série C: ${champC}` : "") + `\n\n` +
+      `Série A → B (rebaixados): ${relegated}\n` +
+      `Série B → A (promovidos): ${promoted}\n` +
+      `Série B → C (rebaixados): ${relegatedToC}\n` +
+      `Série C → B (promovidos): ${promotedFromC}\n\n` +
+      `Você dirige o ${state.teams[MY_TEAM_ID]?.name ?? "?"} na temporada ${state.season} (${myCompName}).`
+    );
+  } catch (e) {
+    console.error("Erro no showSeasonRecap:", e);
+    // Mesmo se algo falhar, garante que MY_COMP_ID seja válido pra UI não travar
+    const fallback = resolveUserCompetition();
+    if (fallback) { MY_COMP_ID = fallback; standingsView = MY_COMP_ID; }
+  }
+}
+
+// Descobre em qual competição o time do usuário está participando agora.
+// Retorna o ID da competição válida (ou null se nenhuma).
+function resolveUserCompetition() {
+  if (!MY_TEAM_ID) return null;
+  const compsToCheck = ["brasileirao_a", "brasileirao_b", "brasileirao_c_p1"];
+  for (const cid of compsToCheck) {
+    const c = state.competitions[cid];
+    if (c?.teams?.includes(MY_TEAM_ID)) return cid;
+  }
+  return null;
 }
 
 // applyMatchResult + recalcTopScorers vêm de season.js (caminho único compartilhado
@@ -2151,7 +2337,10 @@ function openPlayerDetail(playerId) {
   const attrs = Object.entries(p.attributes)
     .filter(([k]) => k !== "goalkeeping" || p.position === "GOL");
 
+  // Detecta se está na base do clube
+  const inAcademy = team?.academy?.prospects?.includes(p.id);
   const status =
+    inAcademy ? `<span class="badge" style="background:var(--accent-2);color:#fff">🌱 Da Base</span>` :
     p.status.injury ? `<span class="badge badge-injury">Lesão · ${p.status.injury.weeksOut} sem</span>` :
     p.status.suspendedMatches > 0 ? `<span class="badge badge-suspended">Suspenso · ${p.status.suspendedMatches}j</span>` :
     `<span class="badge" style="background:var(--accent);color:#000">Apto</span>`;

@@ -189,6 +189,28 @@ export function generateSeasonEndNews(state, report) {
     }
   }
 
+  // Mercado renovado: novos agentes livres
+  if (report.newFreeAgents) {
+    news.push({
+      id: nid(date, "agents"),
+      date, type: "season", priority: "normal",
+      subject: `📋 ${report.newFreeAgents} novos agentes livres no mercado`,
+      body: `Sangue novo disponível para contratação na aba Mercado.`,
+      read: false,
+    });
+  }
+
+  // Prospectos da base que foram auto-liberados (passaram dos 19)
+  if (report.academyReleased?.length) {
+    news.push({
+      id: nid(date, "youth-released"),
+      date, type: "season", priority: "high",
+      subject: `🌱 ${report.academyReleased.length} prospecto${report.academyReleased.length > 1 ? "s" : ""} liberado${report.academyReleased.length > 1 ? "s" : ""} da base`,
+      body: `Atingiram 19 anos sem promoção e foram dispensados: ${report.academyReleased.map(r => r.name).join(", ")}.`,
+      read: false,
+    });
+  }
+
   pushNews(state, news);
   return news;
 }

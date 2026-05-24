@@ -82,10 +82,21 @@ function calcSalary(overall, age) {
   return Math.round(base * ageMod / 1000) * 1000;
 }
 
-export function createPlayer({ rng, teamId, position, teamReputation }) {
-  const age = rng.int(17, 36);
-  // Atributos calibrados pela reputação do clube (clubes grandes têm jogadores melhores)
-  const baseMean = 45 + teamReputation * 0.35; // ~58 para rep 40, ~80 para rep 95
+// Aceita `age` opcional. Se omitido, sorteia entre 17-36 (jogador "padrão").
+// Quando idade < 20, o "baseMean" cai (jovens começam mais fracos) e a chance
+// de "promessa" + bônus de potencial sobem (alguns viram craques).
+export function createPlayer({ rng, teamId, position, teamReputation, age = null }) {
+  const actualAge = age != null ? age : rng.int(17, 36);
+  const isYouth = actualAge < 20;
+
+  // Atributos calibrados pela reputação do clube (clubes grandes têm jogadores melhores).
+  // Jovens entram MUITO mais fracos mas com potencial elevado.
+  const ageBias =
+    actualAge < 16 ? -25 :    // muleque da base
+    actualAge < 19 ? -15 :    // promessa
+    actualAge < 22 ? -8  :    // jovem
+                     0;
+  const baseMean = 45 + teamReputation * 0.35 + ageBias;
   const stdev = 8;
 
   const attrs = {
@@ -107,18 +118,24 @@ export function createPlayer({ rng, teamId, position, teamReputation }) {
   }
 
   const overall = calcOverall(attrs, position);
-  const potential = age < 23
-    ? clamp(overall + rng.int(3, 15))
-    : clamp(overall + rng.int(0, 3));
+  // Jovens recebem bônus de potencial maior pra simular margem de crescimento.
+  const potentialBonus =
+    actualAge < 16 ? rng.int(20, 38) :    // potencial muito alto pra molequinho
+    actualAge < 19 ? rng.int(12, 28) :    // promessa
+    actualAge < 23 ? rng.int(3, 15)  :
+                     rng.int(0, 3);
+  const potential = clamp(overall + potentialBonus);
 
   const traits = [];
   if (rng.chance(0.25)) traits.push(rng.pick(TRAITS_POOL));
   if (rng.chance(0.10)) traits.push(rng.pick(TRAITS_POOL));
+  // Jovens têm chance extra de virem com a tag "promessa"
+  if (isYouth && rng.chance(0.35)) traits.push("promessa");
 
   return {
     id: nextPlayerId(),
     name: `${rng.pick(FIRST_NAMES)} ${rng.pick(LAST_NAMES)}`,
-    age,
+    age: actualAge,
     nationality: "BRA",
     position,
     altPositions: [],
@@ -128,12 +145,12 @@ export function createPlayer({ rng, teamId, position, teamReputation }) {
     potential,
     traits: [...new Set(traits)],
     contract: {
-      salary: calcSalary(overall, age),
-      bonusPerGoal: Math.round(calcSalary(overall, age) * 0.05),
+      salary: calcSalary(overall, actualAge),
+      bonusPerGoal: Math.round(calcSalary(overall, actualAge) * 0.05),
       until: `${2026 + rng.int(1, 4)}-12-31`,
-      releaseClause: calcMarketValue(overall, age, potential) * 2,
+      releaseClause: calcMarketValue(overall, actualAge, potential) * 2,
     },
-    marketValue: calcMarketValue(overall, age, potential),
+    marketValue: calcMarketValue(overall, actualAge, potential),
     status: {
       fitness: 100,
       morale: 70,
@@ -204,4 +221,64 @@ export function generateSquad(rng, team) {
     position: pos,
     teamReputation: team.reputation,
   }));
+}
+
+// Gera UM prospecto pra base do clube (14-17 anos, OVR baixo, POT alto).
+// Usado pelo sistema de Academia (academy.js) — periodicamente um aparece.
+export function generateProspect(rng, team) {
+  const positions = ["GOL", "ZAG", "ZAG", "LD", "LE", "VOL", "VOL", "MEI", "MEI", "PE", "PD", "ATA", "ATA"];
+  return createPlayer({
+    rng,
+    teamId: team.id,
+    position: rng.pick(positions),
+    teamReputation: team.reputation,
+    age: rng.int(14, 17),
+  });
+}
+
+// Promove N jovens (16-19 anos) das categorias de base do clube.
+// Posições sorteadas com viés realista (mais zagueiros/meias, menos goleiros).
+const YOUTH_POSITION_POOL = [
+  "GOL",                                                                    // 1 chance
+  "ZAG", "ZAG", "LD", "LE",                                                 // 4
+  "VOL", "VOL", "MEI", "MEI",                                               // 4
+  "PE", "PD", "ATA", "ATA",                                                 // 4
+];
+
+export function generateYouthBatch(rng, team, count) {
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    out.push(createPlayer({
+      rng,
+      teamId: team.id,
+      position: rng.pick(YOUTH_POSITION_POOL),
+      teamReputation: team.reputation,
+      age: rng.int(16, 19),
+    }));
+  }
+  return out;
+}
+
+// Gera novos agentes livres para repopular o mercado.
+// Mistura idades — alguns jovens dispensados, alguns veteranos sem clube.
+export function generateFreeAgentBatch(rng, count) {
+  const positions = ["GOL", "ZAG", "LD", "LE", "VOL", "MEI", "PE", "PD", "ATA"];
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    // 30% jovens, 50% prime, 20% veteranos
+    let age;
+    const r = rng.next();
+    if (r < 0.30) age = rng.int(18, 22);
+    else if (r < 0.80) age = rng.int(23, 30);
+    else age = rng.int(31, 35);
+
+    out.push(createPlayer({
+      rng,
+      teamId: null,
+      position: rng.pick(positions),
+      teamReputation: rng.int(45, 70),
+      age,
+    }));
+  }
+  return out;
 }

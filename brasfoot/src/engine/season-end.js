@@ -11,8 +11,11 @@
 import { sortStandings } from "./season.js";
 import { createCompetition } from "../models/competition.js";
 import { createSerieCPhase1 } from "./serie-c.js";
-import { evolvePlayer } from "../models/player.js";
+import { evolvePlayer, generateFreeAgentBatch } from "../models/player.js";
 import { recalcExpenses } from "../models/team.js";
+import { processSeasonEndAcademy } from "./academy.js";
+
+const NEW_FREE_AGENTS_PER_SEASON = 25;
 
 const PRIZE_MONEY = {
   brasileirao_a: { champion: 50_000_000, runnerUp: 20_000_000, top4: 10_000_000 },
@@ -27,24 +30,39 @@ export function isSeasonOver(state) {
 export function endSeason(state, rng) {
   const report = { season: state.season, champions: {}, promoted: [], relegated: [], retired: [], freeAgents: [], libertaQualifiers: [] };
 
-  // 1. Campeões + premiação
-  for (const [compId, comp] of Object.entries(state.competitions)) {
+  // 1. Campeões + premiação — só Série A e B aqui.
+  // (A Copa tem standings vazio e seu campeão é setado no closeWeek/cup.js.
+  //  A Série C tem campeão decidido em advanceSerieCIfNeeded / decideSerieCChampion.)
+  const fullLeagueIds = ["brasileirao_a", "brasileirao_b"];
+  for (const compId of fullLeagueIds) {
+    const comp = state.competitions[compId];
+    if (!comp) continue;
     const sorted = sortStandings(comp, state.teams);
+    if (!sorted.length) continue;
+
     const champId = sorted[0].teamId;
     comp.champion = champId;
     report.champions[compId] = champId;
 
     const champTeam = state.teams[champId];
-    champTeam.trophies.push({ competitionId: compId, season: state.season });
+    if (champTeam) champTeam.trophies.push({ competitionId: compId, season: state.season });
 
     // Premiação financeira para top 4
     const prize = PRIZE_MONEY[compId];
-    if (prize) {
+    if (prize && sorted.length >= 4) {
       state.teams[sorted[0].teamId].finances.balance += prize.champion;
       state.teams[sorted[1].teamId].finances.balance += prize.runnerUp;
       state.teams[sorted[2].teamId].finances.balance += prize.top4;
       state.teams[sorted[3].teamId].finances.balance += prize.top4;
     }
+  }
+
+  // Inclui campeões já decididos noutros caminhos (Copa, Série C) no report
+  if (state.competitions.copa_brasil?.champion) {
+    report.champions.copa_brasil = state.competitions.copa_brasil.champion;
+  }
+  if (state.serieCMeta?.champion) {
+    report.champions.brasileirao_c = state.serieCMeta.champion;
   }
 
   // 2. Promoção e Rebaixamento (A↔B e B↔C)
@@ -151,7 +169,21 @@ export function endSeason(state, rng) {
     }
   }
 
-  // 6. Reseta escalações de todos os times (foram modificadas por baixas)
+  // 6. Categoria de base: processa prospectos que viraram 19+
+  //    (IA auto-promove POT≥70 e libera o resto; user team auto-libera tudo)
+  const academyResult = processSeasonEndAcademy(state, state.managedTeamId);
+  report.academyReleased = academyResult.released;
+  report.academyPromoted = academyResult.promoted;
+
+  // 7. Repopula pool de agentes livres com sangue novo
+  const newAgents = generateFreeAgentBatch(rng, NEW_FREE_AGENTS_PER_SEASON);
+  for (const p of newAgents) {
+    state.players[p.id] = p;
+    state.freeAgents.push(p.id);
+  }
+  report.newFreeAgents = newAgents.length;
+
+  // 8. Reseta escalações de todos os times (foram modificadas por baixas e jovens)
   for (const team of Object.values(state.teams)) {
     team.lineup = []; // será re-montada na próxima escalação
     recalcExpenses(team, state.players);

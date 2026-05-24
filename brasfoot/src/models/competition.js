@@ -18,7 +18,7 @@ export function createCompetition({ id, name, tier, season, teamIds, legs = 2, r
       pointsDraw: 1,
       ...rules,
     },
-    fixtures: generateFixtures(teamIds, season, legs, roundOffset),
+    fixtures: generateFixtures(teamIds, season, legs, roundOffset, id),
     standings: teamIds.map(tid => emptyStanding(tid)),
     topScorers: [],
     champion: null,
@@ -41,7 +41,7 @@ function emptyStanding(teamId) {
 // mando da partida do pivô entre rodadas pares e ímpares. Resultado: cada
 // time joga 9 ou 10 partidas em casa no turno (de 19 totais), e o oposto
 // no returno — totalizando 19H/19A perfeitos no campeonato inteiro.
-function generateFixtures(teamIds, season, legs = 2, roundOffset = 0) {
+function generateFixtures(teamIds, season, legs = 2, roundOffset = 0, compId = "comp") {
   const teams = [...teamIds];
   if (teams.length % 2 === 1) teams.push(null); // bye fictício
   const n = teams.length;
@@ -57,7 +57,7 @@ function generateFixtures(teamIds, season, legs = 2, roundOffset = 0) {
       let home = arr[i];
       let away = arr[n - 1 - i];
       if (i === 0 && round % 2 === 1) [home, away] = [away, home];
-      if (home && away) fixtures.push(makeMatch(++mid, round + 1, home, away, season));
+      if (home && away) fixtures.push(makeMatch(++mid, round + 1, home, away, season, compId));
     }
     arr = [arr[0], arr[n - 1], ...arr.slice(1, n - 1)];
   }
@@ -66,7 +66,7 @@ function generateFixtures(teamIds, season, legs = 2, roundOffset = 0) {
   if (legs >= 2) {
     const firstLeg = fixtures.slice();
     for (const m of firstLeg) {
-      fixtures.push(makeMatch(++mid, m.round + (n - 1), m.awayTeamId, m.homeTeamId, season));
+      fixtures.push(makeMatch(++mid, m.round + (n - 1), m.awayTeamId, m.homeTeamId, season, compId));
     }
   }
 
@@ -78,11 +78,13 @@ function generateFixtures(teamIds, season, legs = 2, roundOffset = 0) {
   return fixtures;
 }
 
-function makeMatch(idNum, round, homeId, awayId, season) {
+function makeMatch(idNum, round, homeId, awayId, season, compId = "comp") {
+  // Inclui o ID da competição pra evitar colisões entre Série A/B/C (cada uma
+  // reinicia o contador). Sem isso, m_2026_0010 da Série A == m_2026_0010 da B.
   return {
-    id: `m_${season}_${String(idNum).padStart(4, "0")}`,
+    id: `m_${compId}_${season}_${String(idNum).padStart(4, "0")}`,
     round,
-    date: null, // será atribuído pelo scheduler (próximo módulo)
+    date: null,
     homeTeamId: homeId,
     awayTeamId: awayId,
     played: false,

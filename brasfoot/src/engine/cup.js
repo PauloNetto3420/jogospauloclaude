@@ -16,25 +16,28 @@
 // Sorteio: aleatório até as Oitavas. A partir das Quartas, segue chaveamento
 // fixado (vencedor tie 1 enfrenta vencedor tie 2, etc.).
 
-const PHASE_ORDER = ["fase1", "fase2", "oitavas", "quartas", "semi", "final"];
+const PHASE_ORDER = ["fase1", "fase2", "fase3", "oitavas", "quartas", "semi", "final"];
 
 const PHASE_META = {
-  fase1:    { name: "1ª Fase",         legs: 1, slotsIn: 24, slotsOut: 12 },
-  fase2:    { name: "2ª Fase",         legs: 1, slotsIn: 24, slotsOut: 12 },
-  oitavas:  { name: "Oitavas",         legs: 2, slotsIn: 16, slotsOut: 8 },
-  quartas:  { name: "Quartas",         legs: 2, slotsIn: 8,  slotsOut: 4 },
-  semi:     { name: "Semifinal",       legs: 2, slotsIn: 4,  slotsOut: 2 },
-  final:    { name: "Final",           legs: 2, slotsIn: 2,  slotsOut: 1 },
+  fase1:    { name: "1ª Fase",         legs: 1, slotsIn: 32, slotsOut: 16, prize:   200_000 },
+  fase2:    { name: "2ª Fase",         legs: 1, slotsIn: 32, slotsOut: 16, prize:   400_000 },
+  fase3:    { name: "3ª Fase",         legs: 1, slotsIn: 24, slotsOut: 12, prize:   800_000 },
+  oitavas:  { name: "Oitavas",         legs: 2, slotsIn: 16, slotsOut: 8,  prize: 2_000_000 },
+  quartas:  { name: "Quartas",         legs: 2, slotsIn: 8,  slotsOut: 4,  prize: 3_000_000 },
+  semi:     { name: "Semifinal",       legs: 2, slotsIn: 4,  slotsOut: 2,  prize: 6_000_000 },
+  final:    { name: "Final",           legs: 2, slotsIn: 2,  slotsOut: 1,  prize: 12_000_000 },
 };
+export const CHAMPION_BONUS = 25_000_000;
 
 // Em quais rodadas da liga cada fase é jogada (ida, volta)
 const DEFAULT_SCHEDULE = {
-  fase1:   [5],
-  fase2:   [9],
-  oitavas: [13, 16],
+  fase1:   [3],
+  fase2:   [6],
+  fase3:   [10],
+  oitavas: [14, 17],
   quartas: [20, 23],
   semi:    [27, 30],
-  final:   [34, 37],
+  final:   [33, 36],
 };
 
 // ---------------------- Construção ----------------------
@@ -57,13 +60,17 @@ export function createCupCompetition({ season, allTeams, libertaQualifiers, seri
       .map(t => t.id);
   }
 
-  // Demais 36 times (toda a Série A não-cabeça + toda a Série B), ranqueados por rep
+  // Demais 56 times (todo o resto ordenado por reputação)
+  // - Top 8 (pos 5-12 overall)  → seeds da 3ª Fase
+  // - Pos 9-24                  → seeds da 2ª Fase (16)
+  // - Pos 25-56                 → entram na 1ª Fase (32)
   const remaining = Object.values(allTeams)
     .filter(t => !cabecas.includes(t.id))
     .sort((a, b) => b.reputation - a.reputation);
 
-  const seedsFase2 = remaining.slice(0, 12).map(t => t.id);
-  const seedsFase1 = remaining.slice(12, 36).map(t => t.id);
+  const seedsFase3 = remaining.slice(0, 8).map(t => t.id);
+  const seedsFase2 = remaining.slice(8, 24).map(t => t.id);
+  const seedsFase1 = remaining.slice(24, 56).map(t => t.id);
 
   return {
     id: "copa_brasil",
@@ -71,19 +78,20 @@ export function createCupCompetition({ season, allTeams, libertaQualifiers, seri
     type: "cup",
     tier: 1,
     season,
-    teams: [...cabecas, ...seedsFase2, ...seedsFase1],
+    teams: [...cabecas, ...seedsFase3, ...seedsFase2, ...seedsFase1],
     libertaEntrants: cabecas,
+    fase3Seeds: seedsFase3,
     fase2Seeds: seedsFase2,
     fase1Seeds: seedsFase1,
     phases: PHASE_ORDER.reduce((acc, key) => {
-      acc[key] = { name: PHASE_META[key].name, legs: PHASE_META[key].legs, ties: [], complete: false };
+      acc[key] = { name: PHASE_META[key].name, legs: PHASE_META[key].legs, ties: [], complete: false, prizesPaid: false };
       return acc;
     }, {}),
     phaseOrder: [...PHASE_ORDER],
     currentPhase: "fase1",
     schedule: { ...DEFAULT_SCHEDULE },
-    fixtures: [],         // todos os jogos individuais (legs) — compat com season.js
-    standings: [],        // não tem (mata-mata) — vazio para compat
+    fixtures: [],
+    standings: [],
     topScorers: [],
     champion: null,
     rules: { pointsWin: 0, pointsDraw: 0, format: "knockout" },
@@ -103,9 +111,12 @@ export function drawPhase(competition, phaseKey, rng, teamsById) {
   } else if (phaseKey === "fase2") {
     const winnersFase1 = competition.phases.fase1.ties.map(t => t.winnerId).filter(Boolean);
     entrants = [...winnersFase1, ...competition.fase2Seeds];
-  } else if (phaseKey === "oitavas") {
+  } else if (phaseKey === "fase3") {
     const winnersFase2 = competition.phases.fase2.ties.map(t => t.winnerId).filter(Boolean);
-    entrants = [...winnersFase2, ...competition.libertaEntrants];
+    entrants = [...winnersFase2, ...competition.fase3Seeds];
+  } else if (phaseKey === "oitavas") {
+    const winnersFase3 = competition.phases.fase3.ties.map(t => t.winnerId).filter(Boolean);
+    entrants = [...winnersFase3, ...competition.libertaEntrants];
   } else {
     // Quartas, semi, final: segue chaveamento (vencedores pareados em ordem)
     const prevKey = competition.phaseOrder[competition.phaseOrder.indexOf(phaseKey) - 1];
@@ -114,7 +125,7 @@ export function drawPhase(competition, phaseKey, rng, teamsById) {
   }
 
   const legs = PHASE_META[phaseKey].legs;
-  const isRandomDraw = ["fase1", "fase2", "oitavas"].includes(phaseKey);
+  const isRandomDraw = ["fase1", "fase2", "fase3", "oitavas"].includes(phaseKey);
 
   // Para fases aleatórias: embaralha. Para chaveamento: mantém ordem.
   const pairs = [];
@@ -312,6 +323,30 @@ function shuffle(arr, rng) {
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
+}
+
+// Paga o prêmio de uma fase para todos os times que ENTRARAM nela.
+// Idempotente: marca phase.prizesPaid pra não pagar duas vezes.
+// Retorna { phaseKey, prize, teams } ou null se nada a pagar.
+export function payPhasePrizes(state, competition, phaseKey) {
+  const phase = competition.phases[phaseKey];
+  if (!phase || phase.prizesPaid) return null;
+  if (!phase.ties.length) return null;
+  const prize = PHASE_META[phaseKey]?.prize || 0;
+  if (!prize) { phase.prizesPaid = true; return null; }
+
+  const teamsInPhase = new Set();
+  for (const tie of phase.ties) {
+    if (tie.teamAId) teamsInPhase.add(tie.teamAId);
+    if (tie.teamBId) teamsInPhase.add(tie.teamBId);
+  }
+  for (const teamId of teamsInPhase) {
+    if (state.teams[teamId]) {
+      state.teams[teamId].finances.balance += prize;
+    }
+  }
+  phase.prizesPaid = true;
+  return { phaseKey, phaseName: phase.name, prize, teams: [...teamsInPhase] };
 }
 
 export const CUP_PHASE_META = PHASE_META;

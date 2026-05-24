@@ -26,6 +26,7 @@ export function createTeam(base) {
     trophies: [],
     morale: 70,
     fanHappiness: 70,
+    academy: { prospects: [], lastGeneratedRound: 0 },
   };
 }
 
