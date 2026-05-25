@@ -13,7 +13,7 @@ import { createCompetition } from "../models/competition.js";
 import { createSerieCPhase1 } from "./serie-c.js";
 import { evolvePlayer, generateFreeAgentBatch } from "../models/player.js";
 import { recalcExpenses } from "../models/team.js";
-import { processSeasonEndAcademy } from "./academy.js";
+import { processSeasonEndAcademy, generateSeasonalYouth } from "./academy.js";
 
 const NEW_FREE_AGENTS_PER_SEASON = 25;
 
@@ -169,11 +169,14 @@ export function endSeason(state, rng) {
     }
   }
 
-  // 6. Categoria de base: processa prospectos que viraram 19+
-  //    (IA auto-promove POT≥70 e libera o resto; user team auto-libera tudo)
+  // 6. Categoria de base:
+  //    (a) Processa prospectos que viraram 19+ (IA auto-promove POT≥70 / user libera)
+  //    (b) Gera novos prospectos da temporada que está começando
   const academyResult = processSeasonEndAcademy(state, state.managedTeamId);
   report.academyReleased = academyResult.released;
   report.academyPromoted = academyResult.promoted;
+  const youthGen = generateSeasonalYouth(state, rng);
+  report.academyGenerated = youthGen;
 
   // 7. Repopula pool de agentes livres com sangue novo
   const newAgents = generateFreeAgentBatch(rng, NEW_FREE_AGENTS_PER_SEASON);

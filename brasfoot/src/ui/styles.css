@@ -500,6 +500,104 @@ button.btn-toggle.on { background: var(--accent); color: #000; border-color: var
 .clickable-player { cursor: pointer; }
 .clickable-player:hover { color: var(--accent-2); text-decoration: underline; }
 
+/* -------------------- Sorteio da Copa -------------------- */
+.draw-tie {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  margin-bottom: 6px;
+  border-radius: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  animation: drawReveal .45s cubic-bezier(.2,.8,.4,1);
+  font-size: 13px;
+}
+.draw-tie.mine {
+  background: rgba(var(--accent-rgb), 0.14);
+  border-color: var(--accent);
+  box-shadow: 0 0 16px rgba(var(--accent-rgb), 0.25);
+}
+.draw-tie .home { text-align: right; }
+.draw-tie .away { text-align: left; }
+.draw-tie .vs { color: var(--muted); font-weight: 800; font-size: 16px; }
+@keyframes drawReveal {
+  0%   { transform: translateY(-8px) scale(.92); opacity: 0; }
+  60%  { transform: translateY(0) scale(1.03); opacity: 1; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+/* -------------------- Bracket -------------------- */
+.bracket {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-top: 8px;
+}
+.bracket-col {
+  display: flex;
+  flex-direction: column;
+}
+.bracket-col-title {
+  text-align: center;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--muted);
+  font-weight: 700;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.bracket-col-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  justify-content: space-around;
+  gap: 8px;
+}
+.bracket-tie {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.bracket-tie:hover { background: var(--panel-2); }
+.bracket-tie.mine { background: rgba(var(--accent-rgb), 0.10); border-color: var(--accent); }
+.bracket-tie.pending {
+  background: transparent;
+  border-style: dashed;
+  color: var(--muted);
+  text-align: center;
+  font-style: italic;
+  cursor: default;
+}
+.bracket-row {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+}
+.bracket-row .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bracket-row.winner { font-weight: 700; }
+.bracket-row.loser { color: var(--muted); }
+.bracket-row .score { font-variant-numeric: tabular-nums; text-align: right; }
+.bracket-champion {
+  text-align: center;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 14px 8px;
+  background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.25), rgba(var(--accent-rgb), 0.08));
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  margin-top: 12px;
+}
+
 /* Match detail */
 .match-detail-header {
   display: grid;

@@ -94,6 +94,7 @@ export function createCupCompetition({ season, allTeams, libertaQualifiers, seri
     standings: [],
     topScorers: [],
     champion: null,
+    drawsShown: [],  // fases cujo sorteio já foi exibido ao usuário
     rules: { pointsWin: 0, pointsDraw: 0, format: "knockout" },
   };
 }
@@ -227,20 +228,21 @@ function makeLeg({ phaseKey, idx, legNum, homeId, awayId, season }) {
 // ---------------------- Aplicar resultado ----------------------
 
 // Aplica resultado a um leg da copa. Se a fase é de 2 legs, espera o segundo
-// para decidir o vencedor. Empate no agregado → decisão por sorte (proxy de pênaltis).
-export function applyCupLegResult(competition, leg, rng) {
+// para decidir. Empate → pênaltis reais (precisa de ctx.teamsById + playersById).
+export function applyCupLegResult(competition, leg, rng, ctx = {}) {
   const phase = competition.phases[leg.phase];
   const tie = phase.ties.find(t => t.id === leg.cupTieId);
   if (!tie) return;
 
-  // Se é jogo único (1 leg), já decide
+  // Jogo único (1 leg)
   if (PHASE_META[leg.phase].legs === 1) {
     const home = leg.score.home, away = leg.score.away;
     if (home > away) tie.winnerId = leg.homeTeamId;
     else if (away > home) tie.winnerId = leg.awayTeamId;
     else {
-      // Empate no jogo único: decide nos "pênaltis" (proxy: 50/50 com tempero pela reputação)
-      tie.winnerId = penaltyShootout(competition, leg.homeTeamId, leg.awayTeamId, rng);
+      const shootout = runShootout(tie.teamAId, tie.teamBId, ctx, rng);
+      tie.winnerId = shootout.winnerId;
+      tie.penalties = { scoreA: shootout.scoreA, scoreB: shootout.scoreB, kicks: shootout.kicks };
     }
     tie.aggregate = { home, away };
     if (phase.ties.every(t => t.winnerId)) phase.complete = true;
@@ -249,27 +251,120 @@ export function applyCupLegResult(competition, leg, rng) {
 
   // 2 legs: só decide quando o leg 2 for jogado
   if (leg.legNum !== 2) return;
-  const leg1 = tie.legs[0];
-  const leg2 = tie.legs[1];
+  const [leg1, leg2] = tie.legs;
   if (!leg1.played || !leg2.played) return;
 
-  // tie.teamAId é o de MELHOR seed (joga volta em casa = leg2 home)
-  // No leg1: teamA está fora (away). No leg2: teamA está em casa (home).
+  // teamA é o de melhor seed (manda no leg2)
   const aTotal = leg1.score.away + leg2.score.home;
   const bTotal = leg1.score.home + leg2.score.away;
 
   if (aTotal > bTotal) tie.winnerId = tie.teamAId;
   else if (bTotal > aTotal) tie.winnerId = tie.teamBId;
-  else tie.winnerId = penaltyShootout(competition, tie.teamAId, tie.teamBId, rng);
+  else {
+    const shootout = runShootout(tie.teamAId, tie.teamBId, ctx, rng);
+    tie.winnerId = shootout.winnerId;
+    tie.penalties = { scoreA: shootout.scoreA, scoreB: shootout.scoreB, kicks: shootout.kicks };
+  }
 
   tie.aggregate = { teamA: aTotal, teamB: bTotal };
 
   if (phase.ties.every(t => t.winnerId)) phase.complete = true;
 }
 
-function penaltyShootout(competition, teamAId, teamBId, rng) {
-  // Coin flip influenciado por reputação (proxy bem simplificado)
-  return rng.chance(0.5) ? teamAId : teamBId;
+// Tenta rodar shootout real com playersById. Se faltar contexto, cai pra 50/50.
+function runShootout(teamAId, teamBId, ctx, rng) {
+  if (ctx.teamsById && ctx.playersById) {
+    return penaltyShootout(ctx.teamsById[teamAId], ctx.teamsById[teamBId], ctx.playersById, rng);
+  }
+  // Fallback
+  return {
+    scoreA: 0, scoreB: 0, kicks: [],
+    winnerId: rng.chance(0.5) ? teamAId : teamBId,
+  };
+}
+
+// Disputa de pênaltis: 5 cobranças cada, depois morte súbita.
+// Probabilidade por cobrança baseada em finishing do batedor vs goalkeeping do GK.
+// Cobradores ordenados por finishing (melhor primeiro). Wraparound em morte súbita.
+export function penaltyShootout(teamA, teamB, playersById, rng) {
+  const takersA = pickTakers(teamA, playersById);
+  const takersB = pickTakers(teamB, playersById);
+  const gkA = pickGK(teamA, playersById);
+  const gkB = pickGK(teamB, playersById);
+
+  const kicks = [];
+  let scoreA = 0, scoreB = 0;
+  let aIdx = 0, bIdx = 0;
+
+  function kickA() {
+    const taker = takersA[aIdx % Math.max(1, takersA.length)] || { name: "?", attributes: { finishing: 50 } };
+    const scored = attemptKick(taker, gkB, rng);
+    kicks.push({ team: "A", takerId: taker.id, takerName: taker.name, scored, kick: aIdx + 1 });
+    if (scored) scoreA++;
+    aIdx++;
+  }
+  function kickB() {
+    const taker = takersB[bIdx % Math.max(1, takersB.length)] || { name: "?", attributes: { finishing: 50 } };
+    const scored = attemptKick(taker, gkA, rng);
+    kicks.push({ team: "B", takerId: taker.id, takerName: taker.name, scored, kick: bIdx + 1 });
+    if (scored) scoreB++;
+    bIdx++;
+  }
+
+  // Primeiras 5 cobranças cada
+  for (let r = 0; r < 5; r++) {
+    if (aIdx < 5) {
+      kickA();
+      if (cannotCatchUp(scoreA, scoreB, 5 - aIdx, 5 - bIdx)) break;
+    }
+    if (bIdx < 5) {
+      kickB();
+      if (cannotCatchUp(scoreA, scoreB, 5 - aIdx, 5 - bIdx)) break;
+    }
+  }
+
+  // Morte súbita: continua par a par até alguém ficar atrás após par completo
+  while (scoreA === scoreB) {
+    kickA();
+    kickB();
+  }
+
+  return {
+    scoreA, scoreB,
+    winnerId: scoreA > scoreB ? teamA.id : teamB.id,
+    kicks,
+  };
+}
+
+function cannotCatchUp(scoreA, scoreB, leftA, leftB) {
+  return Math.abs(scoreA - scoreB) > Math.max(leftA, leftB);
+}
+
+function attemptKick(taker, gk, rng) {
+  const finishing = taker?.attributes?.finishing ?? 50;
+  const gkSkill = gk?.attributes?.goalkeeping ?? 50;
+  // Base 75% (alinha com mundo real) + swing pelos atributos.
+  const swing = (finishing - gkSkill) / 250;
+  const prob = Math.max(0.40, Math.min(0.93, 0.75 + swing));
+  return rng.next() < prob;
+}
+
+function pickTakers(team, playersById) {
+  if (!team) return [];
+  const candidates = team.squad
+    .map(id => playersById[id])
+    .filter(p => p && p.position !== "GOL" && !p.status.injury && p.status.suspendedMatches === 0);
+  candidates.sort((a, b) => (b.attributes.finishing || 0) - (a.attributes.finishing || 0));
+  return candidates;
+}
+
+function pickGK(team, playersById) {
+  if (!team) return null;
+  const gks = team.squad
+    .map(id => playersById[id])
+    .filter(p => p && p.position === "GOL" && !p.status.injury && p.status.suspendedMatches === 0);
+  gks.sort((a, b) => (b.attributes.goalkeeping || 0) - (a.attributes.goalkeeping || 0));
+  return gks[0] || null;
 }
 
 // ---------------------- Calendário ----------------------

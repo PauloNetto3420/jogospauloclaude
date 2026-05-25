@@ -28,9 +28,12 @@ import {
   SERIE_C_STAGE_IDS, isSerieCStage,
 } from "./engine/serie-c.js";
 import {
-  generateProspectsForRound, promoteProspect, sellProspect, releaseProspect,
-  ensureAcademy, MAX_ACADEMY_SLOTS, PROSPECT_INTERVAL,
+  generateSeasonalYouth, promoteProspect, sellProspect, releaseProspect,
+  ensureAcademy, MAX_ACADEMY_SLOTS,
 } from "./engine/academy.js";
+import {
+  applyTraining, pickAITrainingFocus, TRAINING_FOCI, DEFAULT_TRAINING, FOCUS_KEYS,
+} from "./engine/training.js";
 import { saveGame, loadGame, listSaves, deleteSave } from "./db.js";
 import { SERIE_A_SEED, SERIE_B_SEED, SERIE_C_SEED } from "../data/teams.seed.js";
 import { TEAM_LOGOS } from "../data/team-logos.js";
@@ -253,6 +256,9 @@ async function startGame(teamId) {
 
   generateFreeAgents(state, rng, 60);
 
+  // Promove a primeira leva de prospectos das categorias de base (1ª temporada)
+  generateSeasonalYouth(state, rng);
+
   // Cria Série C (1ª Fase) — grupos e final são criados em runtime
   state.competitions.brasileirao_c_p1 = createSerieCPhase1({
     season: 2026,
@@ -273,11 +279,12 @@ async function startGame(teamId) {
     seriesATeamIds: SERIE_A_SEED.map(t => t.id),
   });
 
-  // Diversifica formações da IA (usuário começa em 4-3-3 padrão)
+  // Diversifica formações e foco de treino da IA (usuário começa em 4-3-3 + técnica)
   const aiFormations = Object.keys(FORMATIONS);
   for (const t of Object.values(state.teams)) {
     if (t.id !== MY_TEAM_ID) {
       t.tactics.formation = aiFormations[rng.int(0, aiFormations.length - 1)];
+      t.tactics.training = pickAITrainingFocus(rng, t.tactics.formation);
     }
   }
 
@@ -423,6 +430,8 @@ function renderLineup() {
     </div>
 
     ${renderNextMatchCard()}
+
+    ${renderTrainingCard(team)}
 
     <div class="card">
       <h3>Tática</h3>
@@ -782,17 +791,21 @@ function renderAcademy() {
   const prospects = academy.prospects.map(pid => state.players[pid]).filter(Boolean)
     .sort((a, b) => b.potential - a.potential);
 
-  const round = getCurrentRound(state.competitions[MY_COMP_ID]);
-  const nextProspectIn = round != null
-    ? PROSPECT_INTERVAL - ((round - 1) % PROSPECT_INTERVAL) - 1
-    : null;
+  // Faixa de geração esperada pela reputação do clube
+  const rep = team.reputation;
+  const expectedRange =
+    rep >= 90 ? "4 a 5"  :
+    rep >= 80 ? "3 a 4"  :
+    rep >= 70 ? "2 a 3"  :
+    rep >= 60 ? "1 a 3"  :
+                "1 a 2";
 
   return `
     <div class="view-title">Categoria de Base</div>
     <div class="view-sub">
       Slots: <b>${prospects.length}/${MAX_ACADEMY_SLOTS}</b>
-      ${nextProspectIn != null ? ` · Próximo prospecto em ~${nextProspectIn === 0 ? "esta" : nextProspectIn + " rodada" + (nextProspectIn > 1 ? "s" : "")}` : ""}
-      ${prospects.length >= MAX_ACADEMY_SLOTS ? " · ⚠️ Base cheia — libere vagas para receber novos" : ""}
+      · A cada temporada o ${team.shortName} (rep ${rep}) promove <b>${expectedRange}</b> jovens
+      ${prospects.length >= MAX_ACADEMY_SLOTS ? " · ⚠️ Base cheia — prospectos novos serão perdidos sem vaga!" : ""}
     </div>
 
     <div class="card">
@@ -803,8 +816,7 @@ function renderAcademy() {
       </p>
       ${prospects.length === 0 ? `
         <p style="color:var(--muted);font-size:13px;padding:14px 0">
-          Nenhum prospecto no momento. Aguarde a próxima rodada — a categoria de base
-          revela novos talentos a cada ${PROSPECT_INTERVAL} rodadas.
+          Nenhum prospecto no momento. A próxima leva chega no início da próxima temporada.
         </p>
       ` : `
         <table>
@@ -885,6 +897,215 @@ function renderFinance() {
   `;
 }
 
+// -------------------- Modal: Disputa de Pênaltis --------------------
+function showPenaltyShootoutModal(tie, onContinue) {
+  const teamA = state.teams[tie.teamAId];
+  const teamB = state.teams[tie.teamBId];
+  const pen = tie.penalties;
+  if (!pen) { onContinue(); return; }
+
+  const container = document.createElement("div");
+  container.className = "modal-backdrop visible";
+  container.style.zIndex = "300";
+
+  container.innerHTML = `
+    <div class="modal" style="max-width:560px;max-height:88vh;display:flex;flex-direction:column">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border);text-align:center">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Disputa de Pênaltis</div>
+        <h2 style="font-size:22px;margin:6px 0 0">${teamA.shortName} × ${teamB.shortName}</h2>
+      </div>
+
+      <div style="padding:14px 20px;display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:center;border-bottom:1px solid var(--border)">
+        <div style="text-align:right">
+          ${teamLogo(teamA.id, 36)}
+          <div style="font-weight:700;margin-top:6px">${teamA.name}</div>
+        </div>
+        <div style="font-size:32px;font-weight:800;text-align:center;min-width:90px">
+          <span id="pen-score-a">0</span> × <span id="pen-score-b">0</span>
+        </div>
+        <div style="text-align:left">
+          ${teamLogo(teamB.id, 36)}
+          <div style="font-weight:700;margin-top:6px">${teamB.name}</div>
+        </div>
+      </div>
+
+      <div id="pen-kicks" style="padding:14px 20px;overflow-y:auto;flex:1;min-height:120px;font-size:13px"></div>
+
+      <div style="padding:12px 20px;border-top:1px solid var(--border);text-align:center">
+        <button class="btn" id="pen-btn">Pular</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(container);
+  const kicksEl = container.querySelector("#pen-kicks");
+  const scoreAEl = container.querySelector("#pen-score-a");
+  const scoreBEl = container.querySelector("#pen-score-b");
+  const btn = container.querySelector("#pen-btn");
+
+  let i = 0;
+  let scoreA = 0, scoreB = 0;
+  let interval = null;
+  let finished = false;
+
+  const revealOne = () => {
+    if (i >= pen.kicks.length) {
+      finished = true;
+      clearInterval(interval);
+      const winnerId = pen.winnerId;
+      const winnerName = state.teams[winnerId].name;
+      kicksEl.insertAdjacentHTML("beforeend",
+        `<div style="margin-top:10px;padding:10px;text-align:center;background:rgba(var(--accent-rgb),0.15);border:1px solid var(--accent);border-radius:6px;font-weight:700">
+          ${winnerId === MY_TEAM_ID ? "🎉 " : "💔 "}${winnerName} venceu nos pênaltis!
+        </div>`);
+      kicksEl.scrollTop = kicksEl.scrollHeight;
+      btn.textContent = "Continuar ▶";
+      return;
+    }
+    const k = pen.kicks[i];
+    const teamId = k.team === "A" ? teamA.id : teamB.id;
+    const teamObj = k.team === "A" ? teamA : teamB;
+    if (k.scored) {
+      if (k.team === "A") { scoreA++; scoreAEl.textContent = scoreA; }
+      else                { scoreB++; scoreBEl.textContent = scoreB; }
+    }
+    const icon = k.scored ? "⚽" : "❌";
+    const color = k.scored ? "var(--accent)" : "var(--danger)";
+    const align = k.team === "A" ? "left" : "right";
+    const flex  = k.team === "A" ? "row" : "row-reverse";
+    kicksEl.insertAdjacentHTML("beforeend",
+      `<div style="display:flex;flex-direction:${flex};gap:10px;align-items:center;padding:5px 8px;margin-bottom:4px;border-radius:4px;background:var(--bg-2);animation:slideIn .3s ease">
+        ${teamLogo(teamId, 18)}
+        <div style="flex:1;text-align:${align};font-size:12px">
+          <b>${k.takerName}</b> <span style="color:var(--muted)">· cobrança ${k.kick}</span>
+        </div>
+        <div style="font-size:18px;color:${color};font-weight:800">${icon}</div>
+      </div>`);
+    kicksEl.scrollTop = kicksEl.scrollHeight;
+    i++;
+  };
+
+  revealOne();
+  interval = setInterval(revealOne, 650);
+
+  btn.onclick = () => {
+    if (!finished) {
+      clearInterval(interval);
+      while (i < pen.kicks.length) revealOne();
+      // call again to render winner banner
+      revealOne();
+    } else {
+      container.remove();
+      onContinue();
+    }
+  };
+
+  container.addEventListener("click", (e) => {
+    if (e.target === container && finished) {
+      container.remove();
+      onContinue();
+    }
+  });
+}
+
+// -------------------- Modal: Sorteio da Copa --------------------
+function showCupDrawModal(cup, phaseKey, onContinue) {
+  const phase = cup.phases[phaseKey];
+  const meta = CUP_PHASE_META[phaseKey];
+  if (!phase?.ties?.length) { onContinue(); return; }
+
+  // Intervalo de revelação varia com qtd de ties (fases curtas = pausa maior)
+  const n = phase.ties.length;
+  const revealDelay = n <= 2 ? 800 : n <= 4 ? 600 : n <= 8 ? 380 : 180;
+
+  const container = document.createElement("div");
+  container.className = "modal-backdrop visible";
+  container.style.zIndex = "300";
+
+  const legNote = meta.legs === 2 ? "ida e volta" : "jogo único";
+
+  container.innerHTML = `
+    <div class="modal" style="max-width:680px;max-height:88vh;display:flex;flex-direction:column">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);text-align:center">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">
+          Copa do Brasil ${cup.season}
+        </div>
+        <h2 style="font-size:22px;margin:6px 0 0">🏆 Sorteio · ${meta.name}</h2>
+        <div style="color:var(--muted);font-size:12px;margin-top:4px">
+          ${n} confronto${n > 1 ? "s" : ""} · ${legNote} · prêmio R$ ${fmt(meta.prize)}
+        </div>
+      </div>
+      <div id="cup-draw-ties" style="padding:18px 24px;overflow-y:auto;flex:1;min-height:120px">
+        <p style="text-align:center;color:var(--muted);font-size:12px">Iniciando sorteio…</p>
+      </div>
+      <div style="padding:14px 24px;border-top:1px solid var(--border);text-align:center">
+        <button class="btn" id="cup-draw-btn">Pular</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(container);
+  const tiesEl = container.querySelector("#cup-draw-ties");
+  const btn = container.querySelector("#cup-draw-btn");
+  tiesEl.innerHTML = "";
+
+  let idx = 0;
+  let interval = null;
+  let finished = false;
+
+  const revealOne = () => {
+    if (idx >= n) {
+      finished = true;
+      clearInterval(interval);
+      btn.textContent = "Aos jogos ▶";
+      return;
+    }
+    const tie = phase.ties[idx];
+    const teamA = state.teams[tie.teamAId];
+    const teamB = state.teams[tie.teamBId];
+    const isMine = tie.teamAId === MY_TEAM_ID || tie.teamBId === MY_TEAM_ID;
+    const row = document.createElement("div");
+    row.className = "draw-tie" + (isMine ? " mine" : "");
+    row.innerHTML = `
+      <div class="home" style="font-weight:${isMine && tie.teamAId === MY_TEAM_ID ? "800" : "500"}">
+        ${teamLogo(teamA.id, 22)} <span style="margin-left:6px">${teamA.name}</span>
+      </div>
+      <div class="vs">×</div>
+      <div class="away" style="font-weight:${isMine && tie.teamBId === MY_TEAM_ID ? "800" : "500"}">
+        <span style="margin-right:6px">${teamB.name}</span> ${teamLogo(teamB.id, 22)}
+      </div>
+    `;
+    tiesEl.appendChild(row);
+    tiesEl.scrollTop = tiesEl.scrollHeight;
+    idx++;
+  };
+
+  // Start animation
+  revealOne();
+  interval = setInterval(revealOne, revealDelay);
+
+  // Botão: enquanto não revelou tudo, "Pular" mostra todos; depois "Aos jogos" continua
+  btn.onclick = () => {
+    if (!finished) {
+      clearInterval(interval);
+      while (idx < n) revealOne();
+      finished = true;
+      btn.textContent = "Aos jogos ▶";
+    } else {
+      container.remove();
+      onContinue();
+    }
+  };
+
+  // Fechar clicando no fundo SÓ se já terminou
+  container.addEventListener("click", (e) => {
+    if (e.target === container && finished) {
+      container.remove();
+      onContinue();
+    }
+  });
+}
+
 // -------------------- View: Copa do Brasil --------------------
 function renderCup() {
   const cup = state.competitions.copa_brasil;
@@ -920,7 +1141,105 @@ function renderCup() {
       </div>
     ` : ""}
 
-    ${CUP_PHASE_ORDER.map(phaseKey => renderCupPhase(cup, phaseKey)).join("")}
+    ${renderCupEarlyPhases(cup)}
+
+    ${renderCupBracket(cup)}
+  `;
+}
+
+// Fases preliminares (1ª, 2ª, 3ª) — formato compacto/lista
+function renderCupEarlyPhases(cup) {
+  const early = ["fase1", "fase2", "fase3"];
+  return early.map(phaseKey => renderCupPhase(cup, phaseKey)).join("");
+}
+
+// Bracket das fases mata-mata (oitavas → final) em 4 colunas
+function renderCupBracket(cup) {
+  const knockoutPhases = ["oitavas", "quartas", "semi", "final"];
+  return `
+    <div class="card" style="padding:18px 22px">
+      <h3>Chaveamento</h3>
+      <div class="bracket">
+        ${knockoutPhases.map(phaseKey => {
+          const phase = cup.phases[phaseKey];
+          const meta = CUP_PHASE_META[phaseKey];
+          const targetSlots = meta.slotsOut * 2 / (phaseKey === "final" ? 2 : 1); // entrada
+          const slots = [];
+          for (let i = 0; i < (meta.slotsIn / 2); i++) {
+            slots.push(phase?.ties?.[i] || null);
+          }
+          return `
+            <div class="bracket-col">
+              <div class="bracket-col-title">${meta.name}</div>
+              <div class="bracket-col-body">
+                ${slots.map(tie => tie ? renderBracketTie(tie, phaseKey) : `<div class="bracket-tie pending">aguardando</div>`).join("")}
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+      ${cup.champion ? `
+        <div class="bracket-champion">
+          🏆 Campeão: ${state.teams[cup.champion].name}
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+
+function renderBracketTie(tie, phaseKey) {
+  const teamA = state.teams[tie.teamAId];
+  const teamB = state.teams[tie.teamBId];
+  if (!teamA || !teamB) return `<div class="bracket-tie pending">a definir</div>`;
+  const isMine = tie.teamAId === MY_TEAM_ID || tie.teamBId === MY_TEAM_ID;
+  const aWon = tie.winnerId === tie.teamAId;
+  const bWon = tie.winnerId === tie.teamBId;
+
+  // Placar por jogo (mostra leg1·leg2 + agregado, ou só agregado se 1 leg)
+  let scoreCellA = "—", scoreCellB = "—";
+
+  if (tie.legs.length === 1) {
+    const leg = tie.legs[0];
+    if (leg.played) {
+      const a = leg.homeTeamId === tie.teamAId ? leg.score.home : leg.score.away;
+      const b = leg.homeTeamId === tie.teamBId ? leg.score.home : leg.score.away;
+      scoreCellA = String(a);
+      scoreCellB = String(b);
+    }
+  } else if (tie.legs.length === 2) {
+    const [leg1, leg2] = tie.legs;
+    const a1 = leg1.played ? (leg1.homeTeamId === tie.teamAId ? leg1.score.home : leg1.score.away) : "-";
+    const b1 = leg1.played ? (leg1.homeTeamId === tie.teamBId ? leg1.score.home : leg1.score.away) : "-";
+    const a2 = leg2.played ? (leg2.homeTeamId === tie.teamAId ? leg2.score.home : leg2.score.away) : "-";
+    const b2 = leg2.played ? (leg2.homeTeamId === tie.teamBId ? leg2.score.home : leg2.score.away) : "-";
+    const aggA = tie.aggregate?.teamA;
+    const aggB = tie.aggregate?.teamB;
+    scoreCellA = leg1.played || leg2.played
+      ? `<span style="color:var(--muted);font-size:9px">${a1}·${a2}</span> <b>${aggA ?? "?"}</b>`
+      : "—";
+    scoreCellB = leg1.played || leg2.played
+      ? `<span style="color:var(--muted);font-size:9px">${b1}·${b2}</span> <b>${aggB ?? "?"}</b>`
+      : "—";
+  }
+
+  // Pênaltis (anexa "(Xp)")
+  const pen = tie.penalties;
+  const penA = pen ? ` <span style="color:var(--warning);font-weight:700;font-size:10px">(${pen.scoreA}p)</span>` : "";
+  const penB = pen ? ` <span style="color:var(--warning);font-weight:700;font-size:10px">(${pen.scoreB}p)</span>` : "";
+
+  return `
+    <div class="bracket-tie ${isMine ? "mine" : ""}" data-match="${tie.legs[0]?.id || ""}">
+      <div class="bracket-row ${aWon ? "winner" : (bWon ? "loser" : "")}">
+        ${teamLogo(teamA.id, 14)}
+        <span class="name" title="${teamA.name}">${teamA.shortName}</span>
+        <span class="score">${scoreCellA}${penA}</span>
+      </div>
+      <div class="bracket-row ${bWon ? "winner" : (aWon ? "loser" : "")}">
+        ${teamLogo(teamB.id, 14)}
+        <span class="name" title="${teamB.name}">${teamB.shortName}</span>
+        <span class="score">${scoreCellB}${penB}</span>
+      </div>
+    </div>
   `;
 }
 
@@ -1268,6 +1587,14 @@ function wireView() {
       render();
     };
   });
+  $main.querySelectorAll("[data-training]").forEach(btn => {
+    btn.onclick = () => {
+      const team = state.teams[MY_TEAM_ID];
+      team.tactics = team.tactics || {};
+      team.tactics.training = btn.dataset.training;
+      render();
+    };
+  });
   wirePlayerClicks();
 
   $main.querySelectorAll("[data-news]").forEach(el => {
@@ -1386,38 +1713,73 @@ function playRound() {
   if (cup) maybeDrawNextPhase(cup, round - 1, rng, state.teams);
 
   const next = findNextUserCommitment(round);
-
-  if (next) {
-    const home = state.teams[next.match.homeTeamId];
-    const away = state.teams[next.match.awayTeamId];
-    const sim = createMatchSimulator({
-      homeTeam: home, awayTeam: away, playersById: state.players, rng,
-    });
-    // Outras partidas em aberto NESTA rodada → tickam em paralelo
-    const parallels = collectParallelMatches(round, next.match);
-
-    playMatchOnScreen(next.match, sim, async () => {
-      const result = sim.getResult();
-      if (next.isCup) {
-        applyCupLegToState(next.match, result);
-        log(`🏆 Copa: ${state.teams[next.match.homeTeamId].shortName} ${result.score.home}×${result.score.away} ${state.teams[next.match.awayTeamId].shortName}`);
-      } else {
-        applyMatchResult(state, next.match, result, comp);
-      }
-
-      // Se foi o último compromisso do usuário na rodada, fecha a semana
-      const stillHasUserMatch = findNextUserCommitment(round) !== null;
-      if (!stillHasUserMatch) {
-        await closeWeek(round);
-      } else {
-        try { await saveGame(state); } catch (e) { console.warn("Save falhou:", e); }
-      }
-      render();
-    }, parallels);
-  } else {
+  if (!next) {
     // Sem partidas do usuário nesta rodada — simula IA e fecha a semana.
     finalizeRound(round);
+    return;
   }
+
+  // Se for partida de Copa numa fase cujo sorteio ainda não foi exibido,
+  // mostra o sorteio antes de partir pra simulação.
+  if (next.isCup && cup) {
+    const phaseKey = next.match.phase;
+    cup.drawsShown = cup.drawsShown || [];
+    const myTieInPhase = cup.phases[phaseKey]?.ties?.some(t =>
+      t.teamAId === MY_TEAM_ID || t.teamBId === MY_TEAM_ID
+    );
+    if (myTieInPhase && !cup.drawsShown.includes(phaseKey)) {
+      cup.drawsShown.push(phaseKey);
+      showCupDrawModal(cup, phaseKey, () => proceedToMatch(next, round));
+      return;
+    }
+  }
+
+  proceedToMatch(next, round);
+}
+
+function proceedToMatch(next, round) {
+  const comp = state.competitions[MY_COMP_ID];
+  const home = state.teams[next.match.homeTeamId];
+  const away = state.teams[next.match.awayTeamId];
+  const sim = createMatchSimulator({
+    homeTeam: home, awayTeam: away, playersById: state.players, rng,
+  });
+  const parallels = collectParallelMatches(round, next.match);
+
+  playMatchOnScreen(next.match, sim, async () => {
+    const result = sim.getResult();
+    if (next.isCup) {
+      applyCupLegToState(next.match, result);
+      log(`🏆 Copa: ${state.teams[next.match.homeTeamId].shortName} ${result.score.home}×${result.score.away} ${state.teams[next.match.awayTeamId].shortName}`);
+    } else {
+      applyMatchResult(state, next.match, result, comp);
+    }
+
+    // Se foi partida de copa e o tie acabou com penalidades envolvendo o usuário,
+    // mostra animação de shootout antes de seguir.
+    const cup = state.competitions.copa_brasil;
+    const tie = cup?.phases[next.match.phase]?.ties.find(t => t.id === next.match.cupTieId);
+    const userInTie = tie && (tie.teamAId === MY_TEAM_ID || tie.teamBId === MY_TEAM_ID);
+    if (next.isCup && tie?.penalties && userInTie && !tie.penaltiesShown) {
+      tie.penaltiesShown = true;
+      showPenaltyShootoutModal(tie, async () => {
+        await afterUserMatchFlow(round);
+      });
+      return;
+    }
+
+    await afterUserMatchFlow(round);
+  }, parallels);
+}
+
+async function afterUserMatchFlow(round) {
+  const stillHasUserMatch = findNextUserCommitment(round) !== null;
+  if (!stillHasUserMatch) {
+    await closeWeek(round);
+  } else {
+    try { await saveGame(state); } catch (e) { console.warn("Save falhou:", e); }
+  }
+  render();
 }
 
 // Coleta partidas ainda não jogadas desta rodada (excluindo a do usuário)
@@ -1475,7 +1837,7 @@ function applyCupLegToState(leg, result) {
   leg.stats = result.stats;
   applyMatchEffects(state, result, "copa_brasil");
   const cup = state.competitions.copa_brasil;
-  applyCupLegResult(cup, leg, rng);
+  applyCupLegResult(cup, leg, rng, { teamsById: state.teams, playersById: state.players });
 }
 
 // Velocidades disponíveis durante o jogo (ms por minuto simulado).
@@ -1963,27 +2325,32 @@ async function closeWeek(round) {
     if (comp) recalcTopScorers(comp, state.players);
   }
 
+  // Treinamento semanal — aplica foco escolhido pra cada time
+  for (const teamId of Object.keys(state.teams)) {
+    const result = applyTraining(state, teamId, rng);
+    if (teamId === MY_TEAM_ID && result) {
+      const focusName = TRAINING_FOCI[result.focusKey]?.label || "—";
+      if (result.totalGains > 0) {
+        log(`🏋️ Treino (${focusName}): ${result.totalGains} ganho${result.totalGains > 1 ? "s" : ""} de atributo em ${result.playerGains.size} jogador${result.playerGains.size > 1 ? "es" : ""}.`);
+      } else if (result.rested > 0) {
+        log(`🧊 Recuperação: ${result.rested} jogadores recuperaram fitness e forma.`);
+      }
+      // Manchete só pra ganhos grandes (5+) — evita spam semanal
+      if (result.totalGains >= 5) {
+        state.inbox = state.inbox || [];
+        state.inbox.push({
+          id: `n_train_${state.currentDate}_${round}`,
+          date: state.currentDate, type: "highlight", priority: "normal",
+          subject: `🏋️ ${result.totalGains} ganhos de atributo no treino de ${focusName}`,
+          body: `Sua semana de treino rendeu evolução para ${result.playerGains.size} jogadores. Confira a aba Escalação pra ver quem cresceu.`,
+          read: false, teamFocus: MY_TEAM_ID,
+        });
+      }
+    }
+  }
+
   // Transições de fase da Série C
   advanceSerieCIfNeeded();
-
-  // Categoria de base — gera prospectos periodicamente
-  const newProspects = generateProspectsForRound(state, round, rng);
-  const myNew = newProspects.find(np => np.teamId === MY_TEAM_ID);
-  if (myNew) {
-    const p = state.players[myNew.playerId];
-    log(`🌱 Novo prospecto na base: ${p.name} (${p.position}, ${p.age}a, POT ${p.potential}).`);
-    state.inbox = state.inbox || [];
-    state.inbox.push({
-      id: `n_prospect_${myNew.playerId}`,
-      date: state.currentDate,
-      type: "highlight",
-      priority: p.potential >= 80 ? "high" : "normal",
-      subject: `🌱 Novo prospecto na base: ${p.name}${p.potential >= 80 ? " ✨" : ""}`,
-      body: `${p.name} (${p.position}, ${p.age} anos) chegou à base — OVR ${p.overall}, POT ${p.potential}. Acesse a aba Base para decidir o futuro do garoto.`,
-      read: false,
-      teamFocus: MY_TEAM_ID,
-    });
-  }
 
   // Premiação por fase da Copa — paga quem ENTROU em cada fase, idempotente
   const cup = state.competitions.copa_brasil;
@@ -2707,6 +3074,42 @@ function wirePlayerClicks() {
       openPlayerDetail(el.dataset.player);
     };
   });
+}
+
+// -------------------- Card: Treinamento Semanal --------------------
+function renderTrainingCard(team) {
+  const currentKey = team.tactics?.training || DEFAULT_TRAINING;
+  const current = TRAINING_FOCI[currentKey];
+
+  return `
+    <div class="card">
+      <h3>🏋️ Treinamento Semanal</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
+        ${FOCUS_KEYS.map(key => {
+          const f = TRAINING_FOCI[key];
+          const on = key === currentKey;
+          return `<button class="btn-toggle ${on ? "on" : ""}" data-training="${key}" title="${f.hint}">
+            ${f.icon} ${f.label}
+          </button>`;
+        }).join("")}
+      </div>
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:14px;font-size:12px;align-items:center;background:var(--bg-2);border:1px solid var(--border);border-radius:6px;padding:10px 14px">
+        <div style="font-size:28px">${current.icon}</div>
+        <div>
+          <div style="font-weight:700;color:var(--accent);margin-bottom:2px">${current.label}</div>
+          <div style="color:var(--muted);font-size:11px">${current.hint}</div>
+          ${current.attrs?.length ? `
+            <div style="color:var(--muted);font-size:11px;margin-top:4px">
+              Atributos trabalhados: <b style="color:var(--text)">${current.attrs.join(", ")}</b>
+            </div>` : ""}
+          ${current.rest ? `
+            <div style="color:var(--accent);font-size:11px;margin-top:4px">
+              ⚡ Recupera +${current.fitnessRecover} fitness e +${current.formRecover} forma por semana.
+            </div>` : ""}
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 // -------------------- Próximo jogo --------------------

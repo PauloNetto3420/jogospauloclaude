@@ -1,8 +1,8 @@
 // Sistema de Categoria de Base / Academia.
 //
 // Cada clube tem `team.academy.prospects = [playerIds]`, capacidade máxima
-// de 8 slots. A cada 4 rodadas (PROSPECT_INTERVAL), um novo prospecto aparece
-// no clube — desde que haja vaga. Qualidade depende da reputação do clube.
+// de 12 slots. A cada virada de temporada, novos prospectos são gerados
+// com quantidade baseada na reputação do clube (clubes grandes geram mais).
 //
 // O jogador pode (somente pro time gerenciado):
 //   - PROMOVER ao elenco principal
@@ -19,8 +19,7 @@
 import { generateProspect } from "../models/player.js";
 import { recalcExpenses } from "../models/team.js";
 
-export const MAX_ACADEMY_SLOTS = 8;
-export const PROSPECT_INTERVAL = 4; // rodadas entre prospectos
+export const MAX_ACADEMY_SLOTS = 12;
 
 // Garante que o time tem o objeto academy (compatibilidade com saves antigos)
 export function ensureAcademy(team) {
@@ -28,23 +27,45 @@ export function ensureAcademy(team) {
   return team.academy;
 }
 
-// Gera prospectos para todos os clubes na rodada certa. Chamado em closeWeek.
-// Retorna lista de novos prospectos gerados ({ teamId, playerId }).
-export function generateProspectsForRound(state, round, rng) {
-  if (round % PROSPECT_INTERVAL !== 0) return [];
+// Quantos prospectos um clube gera por temporada, baseado em reputação.
+// Clubes maiores produzem mais base — mais infraestrutura, mais olheiros.
+export function prospectCountForReputation(rep, rng) {
+  if (rep >= 90) return rng.int(4, 5);
+  if (rep >= 80) return rng.int(3, 4);
+  if (rep >= 70) return rng.int(2, 3);
+  if (rep >= 60) return rng.int(1, 3);
+  return rng.int(1, 2);
+}
 
-  const generated = [];
+// Gera os prospectos da temporada para todos os clubes (chamado no início de
+// cada temporada, seja no startGame ou após endSeason).
+// Retorna { perTeam: { [teamId]: [playerId, ...] }, total }.
+export function generateSeasonalYouth(state, rng) {
+  const perTeam = {};
+  let total = 0;
+
   for (const team of Object.values(state.teams)) {
     const academy = ensureAcademy(team);
-    if (academy.prospects.length >= MAX_ACADEMY_SLOTS) continue;
+    const desired = prospectCountForReputation(team.reputation, rng);
+    const available = Math.max(0, MAX_ACADEMY_SLOTS - academy.prospects.length);
+    const actually = Math.min(desired, available);
 
-    const prospect = generateProspect(rng, team);
-    state.players[prospect.id] = prospect;
-    academy.prospects.push(prospect.id);
-    academy.lastGeneratedRound = round;
-    generated.push({ teamId: team.id, playerId: prospect.id });
+    const newIds = [];
+    for (let i = 0; i < actually; i++) {
+      const prospect = generateProspect(rng, team);
+      state.players[prospect.id] = prospect;
+      academy.prospects.push(prospect.id);
+      newIds.push(prospect.id);
+    }
+    if (newIds.length) {
+      perTeam[team.id] = { generated: newIds, missed: desired - actually };
+      total += newIds.length;
+    } else if (desired > 0) {
+      perTeam[team.id] = { generated: [], missed: desired };
+    }
   }
-  return generated;
+
+  return { perTeam, total };
 }
 
 // Promove o prospecto pro elenco principal.

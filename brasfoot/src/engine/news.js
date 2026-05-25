@@ -211,6 +211,40 @@ export function generateSeasonEndNews(state, report) {
     });
   }
 
+  // Resumo dos prospectos gerados para a temporada que está começando
+  if (report.academyGenerated) {
+    const myTeamId = state.managedTeamId;
+    const myGen = report.academyGenerated.perTeam[myTeamId];
+    if (myGen?.generated?.length) {
+      const team = state.teams[myTeamId];
+      const newPlayers = myGen.generated.map(id => state.players[id]).filter(Boolean);
+      const joias = newPlayers.filter(p => p.potential >= 80)
+        .sort((a, b) => b.potential - a.potential);
+      const joiasStr = joias.length
+        ? ` Destaque${joias.length > 1 ? "s" : ""}: ${joias.map(p => `${p.name} (POT ${p.potential})`).join(", ")}.`
+        : "";
+      const missedStr = myGen.missed > 0
+        ? ` ⚠️ ${myGen.missed} prospecto${myGen.missed > 1 ? "s foram perdidos" : " foi perdido"} por falta de vaga na base.`
+        : "";
+      news.push({
+        id: nid(date, "youth-promoted", myTeamId),
+        date, type: "highlight",
+        priority: joias.length ? "high" : "normal",
+        subject: `🌱 ${team.shortName} promove ${newPlayers.length} jovem${newPlayers.length > 1 ? "ns" : ""} da base${joias.length ? " ✨" : ""}`,
+        body: `Nova safra da base do ${team.name}: ${newPlayers.map(p => `${p.name} (${p.position}, ${p.age}a · POT ${p.potential})`).join(" · ")}.${joiasStr}${missedStr}`,
+        read: false, teamFocus: myTeamId,
+      });
+    }
+    // Resumo geral
+    news.push({
+      id: nid(date, "youth-summary"),
+      date, type: "season", priority: "low",
+      subject: `🌱 Categorias de base promovem ${report.academyGenerated.total} jovens na liga`,
+      body: `Total de prospectos gerados nas categorias de base dos 60 clubes para a temporada ${state.season}.`,
+      read: false,
+    });
+  }
+
   pushNews(state, news);
   return news;
 }

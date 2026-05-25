@@ -20,6 +20,7 @@ export function createTeam(base) {
       formation: "4-3-3",
       style: "equilibrado",
       pressing: "medio",
+      training: "tecnica",
     },
     squad: [],          // preenchido pelo gerador de jogadores
     staff: { coachId: null, scouts: 1 },
