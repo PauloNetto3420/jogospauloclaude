@@ -33,8 +33,8 @@ export const TEAM_LOGOS = {
   ber:  "src/images/sao_bernarndo_sp.png",
   bfc:  "src/images/botasp.png",
   cea:  "src/images/ceara.png",
-  crb:  "src/images/crb.gif",
-  // cri: Criciúma ainda sem imagem — usa fallback
+  crb:  "src/images/CRB.png",
+  cri:  "src/images/Criciúma.png",
   cui:  "src/images/cuiaba_mt.png",
   for:  "src/images/fortaleza.png",
   goi:  "src/images/goias.png",

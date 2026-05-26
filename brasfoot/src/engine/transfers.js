@@ -12,6 +12,53 @@
 import { createPlayer } from "../models/player.js";
 import { recalcExpenses } from "../models/team.js";
 
+// -------------------- Janelas de Transferência --------------------
+// Brasileirão real tem 2 janelas: pré-temporada e meio do ano.
+// Aqui mapeamos pra rodadas:
+//   Pré-temporada: rodadas 1-5
+//   Meio do ano:   rodadas 18-22
+// Renovações de contrato e ações da base (academia) NÃO são afetadas.
+
+const TRANSFER_WINDOWS = [
+  { name: "Pré-temporada", start: 1,  end: 5  },
+  { name: "Meio do Ano",   start: 18, end: 22 },
+];
+
+export function isTransferWindowOpen(round) {
+  if (round == null) return false;
+  return TRANSFER_WINDOWS.some(w => round >= w.start && round <= w.end);
+}
+
+export function getTransferWindowStatus(round) {
+  if (round == null) return { open: false, label: "Janela fechada", icon: "🔴" };
+  const inWindow = TRANSFER_WINDOWS.find(w => round >= w.start && round <= w.end);
+  if (inWindow) {
+    return {
+      open: true,
+      windowName: inWindow.name,
+      icon: "🟢",
+      label: `${inWindow.name} aberta · fecha após a rodada ${inWindow.end}`,
+      closesAt: inWindow.end,
+    };
+  }
+  const next = TRANSFER_WINDOWS.find(w => w.start > round);
+  if (next) {
+    return {
+      open: false,
+      icon: "🔴",
+      label: `Janela fechada · próxima abre na rodada ${next.start} (${next.name})`,
+      opensAt: next.start,
+      nextName: next.name,
+    };
+  }
+  return {
+    open: false,
+    icon: "🔴",
+    label: "Janela fechada · próxima abre na temporada que vem",
+    opensAt: null,
+  };
+}
+
 // -------------------- Listagem --------------------
 export function listFreeAgents(state) {
   return (state.freeAgents || [])
@@ -36,7 +83,10 @@ export function listMarket(state, excludeTeamId) {
 }
 
 // -------------------- Proposta por jogador de outro time --------------------
-export function makeBid(state, { fromTeamId, playerId, fee, salaryOffer }) {
+export function makeBid(state, { fromTeamId, playerId, fee, salaryOffer, currentRound }) {
+  if (!isTransferWindowOpen(currentRound)) {
+    return reject("Janela de transferências fechada — não dá pra fazer propostas agora.");
+  }
   const buyer = state.teams[fromTeamId];
   const player = state.players[playerId];
   if (!buyer || !player) return reject("Jogador ou comprador inválido.");
@@ -82,7 +132,10 @@ export function makeBid(state, { fromTeamId, playerId, fee, salaryOffer }) {
 }
 
 // -------------------- Contratação de agente livre --------------------
-export function signFreeAgent(state, { teamId, playerId, salaryOffer }) {
+export function signFreeAgent(state, { teamId, playerId, salaryOffer, currentRound }) {
+  if (!isTransferWindowOpen(currentRound)) {
+    return reject("Janela de transferências fechada — agentes livres só podem assinar durante a janela.");
+  }
   const team = state.teams[teamId];
   const player = state.players[playerId];
   if (!team || !player) return reject("Jogador ou time inválido.");
@@ -293,7 +346,8 @@ const POS_GROUP_AI = {
   PE: "ATA", PD: "ATA", ATA: "ATA",
 };
 
-export function runAITransfers(state, rng, { excludeTeamId } = {}) {
+export function runAITransfers(state, rng, { excludeTeamId, currentRound } = {}) {
+  if (!isTransferWindowOpen(currentRound)) return [];
   const moves = [];
   for (const team of Object.values(state.teams)) {
     if (team.id === excludeTeamId) continue;
@@ -415,6 +469,321 @@ export function generateFreeAgents(state, rng, count = 30) {
     state.players[player.id] = player;
     state.freeAgents.push(player.id);
   }
+}
+
+// -------------------- IA propõe pelos jogadores do USUÁRIO --------------------
+// A cada rodada, IA pode tentar uma proposta por um jogador interessante seu.
+// Limita: no máximo 1 proposta ATIVA por clube comprador.
+// Ofertas expiram após N rodadas se não respondidas.
+
+const OFFER_EXPIRATION_ROUNDS = 4;
+const POS_GROUP_OFFERS = {
+  GOL: "GOL", ZAG: "DEF", LD: "DEF", LE: "DEF",
+  VOL: "MID", MEI: "MID", PE: "ATA", PD: "ATA", ATA: "ATA",
+};
+
+export function listIncomingOffers(state) {
+  return (state.transferOffers || []).filter(o => o.status === "pending");
+}
+
+// Gera propostas da IA por jogadores do user team.
+export function generateIncomingOffers(state, rng, myTeamId, currentRound) {
+  state.transferOffers = state.transferOffers || [];
+  const myTeam = state.teams[myTeamId];
+  if (!myTeam) return [];
+
+  // Expira ofertas antigas
+  for (const o of state.transferOffers) {
+    if (o.status === "pending" && currentRound - (o.round || 0) >= OFFER_EXPIRATION_ROUNDS) {
+      o.status = "expired";
+    }
+  }
+
+  // IA só propõe durante a janela
+  if (!isTransferWindowOpen(currentRound)) return [];
+
+  const newOffers = [];
+  for (const team of Object.values(state.teams)) {
+    if (team.id === myTeamId) continue;
+    // Já tem oferta pendente desse clube? pula
+    const active = state.transferOffers.some(o =>
+      o.fromTeamId === team.id && o.status === "pending"
+    );
+    if (active) continue;
+    if (team.finances.balance < 5_000_000) continue;
+
+    // Chance baseada em saldo e reputação (clubes ricos tentam mais)
+    let chance = 0.02;
+    if (team.finances.balance > 30_000_000) chance = 0.08;
+    if (team.finances.balance > 60_000_000) chance = 0.12;
+    if (team.reputation >= 90) chance += 0.03;
+    if (!rng.chance(chance)) continue;
+
+    const target = pickTargetFromUserSquad(team, myTeam, state.players, rng);
+    if (!target) continue;
+
+    // Calcula oferta — 75% a 130% do valor de mercado
+    const mv = target.marketValue;
+    const fee = Math.round(mv * (0.75 + rng.next() * 0.55));
+    // Salário oferecido — 10-35% acima do atual
+    const salaryOffer = Math.round(target.contract.salary * (1.10 + rng.next() * 0.25));
+
+    // IA precisa ter o caixa
+    if (team.finances.balance < fee * 1.2) continue;
+
+    const offer = {
+      id: `offer_${currentRound}_${team.id}_${target.id}`,
+      type: "incoming_offer",
+      date: state.currentDate,
+      round: currentRound,
+      fromTeamId: team.id,
+      playerId: target.id,
+      playerName: target.name,
+      fee,
+      salaryOffer,
+      status: "pending",
+      counterAttempts: 0,
+    };
+    state.transferOffers.push(offer);
+    newOffers.push(offer);
+  }
+
+  return newOffers;
+}
+
+// Critério da IA pra escolher quem propor: alvo na posição mais fraca da IA,
+// com OVR maior que a média da posição do comprador. Prioriza jovens.
+function pickTargetFromUserSquad(buyerTeam, sellerTeam, players, rng) {
+  const sellerSquad = sellerTeam.squad.map(id => players[id]).filter(Boolean);
+  if (!sellerSquad.length) return null;
+
+  // Prioridade: jogadores LISTADOS pelo clube (pediram pra sair)
+  const listed = sellerSquad.filter(p => p.status?.transferListed);
+  if (listed.length) {
+    listed.sort((a, b) => (b.overall + b.potential) - (a.overall + a.potential));
+    // Sorteia entre top 3 listados
+    return listed[rng.int(0, Math.min(2, listed.length - 1))];
+  }
+
+  const buyerSquad = buyerTeam.squad.map(id => players[id]).filter(Boolean);
+  const groupCount = { GOL: 0, DEF: 0, MID: 0, ATA: 0 };
+  const groupSum = { GOL: 0, DEF: 0, MID: 0, ATA: 0 };
+  for (const p of buyerSquad) {
+    const g = POS_GROUP_OFFERS[p.position];
+    if (g) { groupCount[g]++; groupSum[g] += p.overall; }
+  }
+  let weakest = "MID", weakestAvg = Infinity;
+  for (const g of Object.keys(groupCount)) {
+    const avg = groupCount[g] ? groupSum[g] / groupCount[g] : 0;
+    if (avg < weakestAvg) { weakestAvg = avg; weakest = g; }
+  }
+
+  // Candidatos: jogadores do user time da posição mais fraca da IA, OVR > média + 3
+  const candidates = sellerSquad.filter(p =>
+    POS_GROUP_OFFERS[p.position] === weakest && p.overall > weakestAvg + 3
+  );
+  if (!candidates.length) return null;
+
+  // Prioriza por (overall + potencial) — quer talento
+  candidates.sort((a, b) => (b.overall + b.potential) - (a.overall + a.potential));
+  // Pega top 3 e sorteia
+  const pool = candidates.slice(0, 3);
+  return pool[rng.int(0, pool.length - 1)];
+}
+
+// Resposta do usuário: "accept" | "reject" | "counter" (com counterFee)
+// Para counter: IA recalcula se cabe (até 1.5x do fee original).
+export function respondToOffer(state, offerId, response, counterFee = null) {
+  const offer = (state.transferOffers || []).find(o => o.id === offerId);
+  if (!offer) return reject("Proposta não encontrada.");
+  if (offer.status !== "pending") return reject("Proposta não está mais ativa.");
+
+  const buyer = state.teams[offer.fromTeamId];
+  const player = state.players[offer.playerId];
+  if (!buyer || !player) {
+    offer.status = "cancelled";
+    return reject("Comprador ou jogador inválido.");
+  }
+  const seller = state.teams[player.teamId];
+  if (!seller) {
+    offer.status = "cancelled";
+    return reject("Vendedor inválido.");
+  }
+
+  if (response === "reject") {
+    offer.status = "rejected";
+    return { accepted: false, message: `Proposta do ${buyer.shortName} recusada.` };
+  }
+
+  if (response === "accept") {
+    return executeOfferTransfer(state, offer, offer.fee, buyer, seller, player);
+  }
+
+  if (response === "counter") {
+    if (!Number.isFinite(counterFee) || counterFee <= offer.fee) {
+      return reject("Contraproposta precisa ser maior que a oferta atual.");
+    }
+    offer.counterAttempts = (offer.counterAttempts || 0) + 1;
+    // IA aceita até 50% acima da oferta original
+    const ceiling = offer.fee * 1.5;
+    const canAfford = buyer.finances.balance >= counterFee * 1.1;
+    if (counterFee <= ceiling && canAfford) {
+      const res = executeOfferTransfer(state, offer, counterFee, buyer, seller, player);
+      if (res.accepted) {
+        res.message = `${buyer.shortName} aceitou a contraproposta. ${res.message}`;
+      }
+      return res;
+    }
+    // Recusa contraproposta — encerra negociação
+    offer.status = "counter_rejected";
+    return {
+      accepted: false,
+      message: `${buyer.shortName} recusou sua contraproposta de R$ ${fmt(counterFee)} e desistiu do negócio.`,
+    };
+  }
+
+  return reject("Resposta inválida.");
+}
+
+function executeOfferTransfer(state, offer, finalFee, buyer, seller, player) {
+  if (buyer.finances.balance < finalFee) {
+    offer.status = "cancelled";
+    return reject(`${buyer.shortName} não tem mais caixa para fechar a R$ ${fmt(finalFee)}.`);
+  }
+
+  buyer.finances.balance -= finalFee;
+  seller.finances.balance += finalFee;
+
+  seller.squad = seller.squad.filter(id => id !== player.id);
+  seller.lineup = (seller.lineup || []).filter(id => id !== player.id);
+  buyer.squad.push(player.id);
+  player.teamId = buyer.id;
+  // Limpa flag de listagem ao trocar de clube
+  if (player.status) {
+    delete player.status.transferListed;
+    delete player.status.lastRequestRound;
+  }
+  player.contract = {
+    ...player.contract,
+    salary: offer.salaryOffer,
+    bonusPerGoal: Math.round(offer.salaryOffer * 0.05),
+    until: `${parseInt((state.currentDate || `${state.season}-01-01`).slice(0, 4), 10) + 3}-12-31`,
+    releaseClause: player.marketValue * 2,
+  };
+  player.history.push({
+    season: state.season,
+    from: seller.id,
+    to: buyer.id,
+    fee: finalFee,
+  });
+
+  recalcExpenses(buyer, state.players);
+  recalcExpenses(seller, state.players);
+
+  offer.status = "accepted";
+  offer.finalFee = finalFee;
+  return {
+    accepted: true,
+    finalFee,
+    message: `${player.name} vendido ao ${buyer.shortName} por R$ ${fmt(finalFee)}.`,
+  };
+}
+
+// -------------------- Pedidos de Transferência (jogador → clube) --------------------
+// Jogador com moral baixa pode pedir pra sair. Se aceito (listado), vira alvo
+// prioritário pra IA propor. Se "promessa de minutos", recupera moral.
+// Se ignorado, perde mais moral.
+
+const REQUEST_COOLDOWN_ROUNDS = 6; // depois de pedir, espera 6 rodadas pra pedir de novo
+
+export function listTransferRequests(state) {
+  return (state.transferRequests || []).filter(r => r.status === "pending");
+}
+
+export function generateTransferRequests(state, rng, myTeamId, currentRound) {
+  state.transferRequests = state.transferRequests || [];
+  const team = state.teams[myTeamId];
+  if (!team) return [];
+
+  const newReqs = [];
+  for (const pid of team.squad) {
+    const p = state.players[pid];
+    if (!p) continue;
+    if (p.status?.transferListed) continue;
+    if (p.status?.lastRequestRound && currentRound - p.status.lastRequestRound < REQUEST_COOLDOWN_ROUNDS) continue;
+
+    const morale = p.status?.morale ?? 70;
+    let chance = 0;
+    let reason = null;
+
+    if (morale < 25)      { chance = 0.30; reason = "very_low_morale"; }
+    else if (morale < 40) { chance = 0.15; reason = "low_morale"; }
+    else if (morale < 55 && p.age >= 30) { chance = 0.08; reason = "veteran_unhappy"; }
+
+    if (!chance || !rng.chance(chance)) continue;
+
+    p.status.lastRequestRound = currentRound;
+    const req = {
+      id: `req_${currentRound}_${pid}`,
+      playerId: pid,
+      playerName: p.name,
+      reason,
+      morale,
+      round: currentRound,
+      status: "pending",
+    };
+    state.transferRequests.push(req);
+    newReqs.push(req);
+  }
+  return newReqs;
+}
+
+// Resposta: "list" (lista pra vender) | "promise" (acalmar) | "reject" (recusar e bravo)
+export function resolveTransferRequest(state, requestId, response) {
+  const req = (state.transferRequests || []).find(r => r.id === requestId);
+  if (!req || req.status !== "pending") return reject("Solicitação inválida.");
+  const player = state.players[req.playerId];
+  if (!player) return reject("Jogador não encontrado.");
+
+  if (response === "list") {
+    player.status.transferListed = true;
+    req.status = "listed";
+    return {
+      ok: true,
+      message: `${player.name} foi listado pra venda. Clubes interessados podem fazer propostas.`,
+    };
+  }
+
+  if (response === "promise") {
+    // Tenta acalmar — recupera moral
+    player.status.morale = Math.min(100, (player.status.morale ?? 70) + 22);
+    req.status = "kept";
+    return {
+      ok: true,
+      message: `Você conversou com ${player.name} e prometeu mais espaço. Moral recuperada.`,
+    };
+  }
+
+  if (response === "reject") {
+    // Recusa frontalmente — jogador fica mais bravo
+    player.status.morale = Math.max(0, (player.status.morale ?? 70) - 18);
+    req.status = "rejected_by_club";
+    return {
+      ok: true,
+      message: `Você recusou o pedido de ${player.name}. A moral despencou.`,
+    };
+  }
+
+  return reject("Resposta inválida.");
+}
+
+// Remove um jogador da lista (mudou de ideia)
+export function unlistPlayer(state, teamId, playerId) {
+  const player = state.players[playerId];
+  if (!player) return reject("Jogador não encontrado.");
+  if (player.teamId !== teamId) return reject("Jogador não pertence ao seu clube.");
+  delete player.status.transferListed;
+  return { ok: true, message: `${player.name} retirado da lista de transferência.` };
 }
 
 // -------------------- Helpers --------------------

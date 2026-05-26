@@ -14,6 +14,9 @@ import { weeklyTick } from "./engine/finance.js";
 import {
   listFreeAgents, listMarket, makeBid, signFreeAgent, generateFreeAgents,
   runAITransfers, renewContract, getRenewalExpectation,
+  generateIncomingOffers, listIncomingOffers, respondToOffer,
+  generateTransferRequests, listTransferRequests, resolveTransferRequest, unlistPlayer,
+  isTransferWindowOpen, getTransferWindowStatus,
 } from "./engine/transfers.js";
 import { isSeasonOver, endSeason } from "./engine/season-end.js";
 import { generateNewsForRound, generateSeasonEndNews } from "./engine/news.js";
@@ -230,6 +233,8 @@ async function startGame(teamId) {
     managedTeamId: MY_TEAM_ID,
     teams: {}, players: {}, freeAgents: [],
     competitions: {}, log: [],
+    transferOffers: [],
+    transferRequests: [],
     settings: { difficulty: "normal", language: "pt-BR", seed },
   };
 
@@ -744,23 +749,164 @@ function renderMarket() {
   const free = listFreeAgents(state).sort((a, b) => b.overall - a.overall).slice(0, 12);
   const market = listMarket(state, MY_TEAM_ID).sort((a, b) => b.overall - a.overall).slice(0, 12);
 
+  const pendingOffers = listIncomingOffers(state);
+  const pendingRequests = listTransferRequests(state);
+  const listedPlayers = my.squad
+    .map(id => state.players[id])
+    .filter(p => p?.status?.transferListed);
+  const round = getCurrentRoundSafe();
+  const windowStatus = getTransferWindowStatus(round);
+  const isOpen = windowStatus.open;
+
   return `
     <div class="view-title">Mercado</div>
     <div class="view-sub">Caixa disponível: <b style="color:var(--accent)">R$ ${fmt(my.finances.balance)}</b></div>
 
-    <div class="card">
-      <h3>Agentes Livres <span style="color:var(--muted);font-weight:400;font-size:12px">(sem custo de transferência)</span></h3>
-      ${renderPlayerTable(free, "free")}
+    <div class="card" style="border-left:3px solid ${isOpen ? "var(--accent)" : "var(--danger)"};padding:12px 16px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:20px">${windowStatus.icon}</span>
+        <div>
+          <div style="font-weight:700;font-size:14px">${isOpen ? "Janela de transferências aberta" : "Janela de transferências fechada"}</div>
+          <div style="color:var(--muted);font-size:12px;margin-top:2px">${windowStatus.label}</div>
+        </div>
+      </div>
     </div>
 
-    <div class="card">
-      <h3>Disponíveis em Outros Clubes</h3>
-      ${renderPlayerTable(market, "buy")}
+    ${pendingRequests.length ? renderTransferRequestsCard(pendingRequests) : ""}
+
+    ${pendingOffers.length ? renderIncomingOffersCard(pendingOffers, isOpen) : ""}
+
+    ${listedPlayers.length ? renderListedPlayersCard(listedPlayers) : ""}
+
+    <div class="card" style="${isOpen ? "" : "opacity:0.55"}">
+      <h3>Agentes Livres ${isOpen ? `<span style="color:var(--muted);font-weight:400;font-size:12px">(sem custo de transferência)</span>` : `<span style="color:var(--danger);font-size:11px">· bloqueado fora da janela</span>`}</h3>
+      ${renderPlayerTable(free, "free", !isOpen)}
+    </div>
+
+    <div class="card" style="${isOpen ? "" : "opacity:0.55"}">
+      <h3>Disponíveis em Outros Clubes ${isOpen ? "" : `<span style="color:var(--danger);font-size:11px">· bloqueado fora da janela</span>`}</h3>
+      ${renderPlayerTable(market, "buy", !isOpen)}
     </div>
   `;
 }
 
-function renderPlayerTable(players, kind) {
+function renderTransferRequestsCard(requests) {
+  return `
+    <div class="card" style="border-left:3px solid var(--danger)">
+      <h3>🔻 Pedidos de Transferência <span style="color:var(--muted);font-weight:400;font-size:12px">(${requests.length})</span></h3>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:8px">
+        Jogador insatisfeito pediu pra sair. Você pode listá-lo (vira alvo da IA),
+        prometer mais espaço (recupera moral) ou recusar (moral despenca).
+      </p>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${requests.map(r => {
+          const p = state.players[r.playerId];
+          if (!p) return "";
+          const reasonLabel = ({
+            very_low_morale: "Moral muito baixa",
+            low_morale: "Moral baixa",
+            veteran_unhappy: "Veterano insatisfeito",
+          })[r.reason] || r.reason;
+          return `
+            <div style="background:var(--bg-2);border:1px solid var(--border);border-radius:6px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:12px">
+              <div style="flex:1">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                  <b data-player="${p.id}" class="clickable-player">${p.name}</b>
+                  <span class="badge badge-pos">${p.position}</span>
+                  <span class="badge badge-ovr ${ovrClass(p.overall)}">${p.overall}</span>
+                </div>
+                <div style="font-size:11px;color:var(--muted)">
+                  Motivo: ${reasonLabel} (moral ${r.morale}) · Valor estimado: R$ ${fmt(p.marketValue)}
+                </div>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button class="btn btn-sm btn-secondary" data-req="list" data-rid="${r.id}">Listar p/ venda</button>
+                <button class="btn btn-sm btn-secondary" data-req="promise" data-rid="${r.id}">Prometer espaço</button>
+                <button class="btn btn-sm btn-secondary" data-req="reject" data-rid="${r.id}" style="color:var(--danger)">Recusar</button>
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderListedPlayersCard(players) {
+  return `
+    <div class="card" style="border-left:3px solid var(--warning)">
+      <h3>⚠️ Listados para venda <span style="color:var(--muted);font-weight:400;font-size:12px">(${players.length})</span></h3>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:8px">
+        Esses jogadores estão sinalizados pra sair. A IA vai priorizá-los nas propostas.
+      </p>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${players.map(p => `
+          <div style="background:var(--bg-2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;display:flex;justify-content:space-between;align-items:center">
+            <div style="display:flex;align-items:center;gap:8px">
+              <b data-player="${p.id}" class="clickable-player">${p.name}</b>
+              <span class="badge badge-pos">${p.position}</span>
+              <span class="badge badge-ovr ${ovrClass(p.overall)}">${p.overall}</span>
+              <span style="font-size:11px;color:var(--muted)">· R$ ${fmt(p.marketValue)}</span>
+            </div>
+            <button class="btn btn-sm btn-secondary" data-unlist="${p.id}">Retirar da lista</button>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderIncomingOffersCard(offers) {
+  return `
+    <div class="card" style="border-left:3px solid var(--warning)">
+      <h3>📩 Propostas Recebidas <span style="color:var(--muted);font-weight:400;font-size:12px">(${offers.length} pendente${offers.length > 1 ? "s" : ""})</span></h3>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
+        ${offers.map(o => {
+          const fromTeam = state.teams[o.fromTeamId];
+          const player = state.players[o.playerId];
+          if (!fromTeam || !player) return "";
+          const expiresIn = Math.max(0, 4 - (getCurrentRoundSafe() - o.round));
+          return `
+            <div style="background:var(--bg-2);border:1px solid var(--border);border-radius:6px;padding:12px 14px">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px">
+                <div style="flex:1">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                    ${teamLogo(fromTeam.id, 24)}
+                    <b style="font-size:14px">${fromTeam.name}</b>
+                    <span style="color:var(--muted);font-size:11px">propõe por</span>
+                    <b style="color:var(--accent-2)" data-player="${player.id}" class="clickable-player">${player.name}</b>
+                    <span class="badge badge-pos">${player.position}</span>
+                    <span class="badge badge-ovr ${ovrClass(player.overall)}">${player.overall}</span>
+                  </div>
+                  <div style="font-size:12px;color:var(--muted)">
+                    Oferta: <b style="color:var(--accent)">R$ ${fmt(o.fee)}</b>
+                    · Valor de mercado: R$ ${fmt(player.marketValue)}
+                    · Salário: R$ ${fmt(o.salaryOffer)}/mês (atual R$ ${fmt(player.contract.salary)})
+                  </div>
+                  <div style="font-size:10px;color:var(--muted);margin-top:4px">
+                    Expira em ${expiresIn} rodada${expiresIn !== 1 ? "s" : ""}
+                    ${o.counterAttempts ? ` · ${o.counterAttempts} contraproposta${o.counterAttempts > 1 ? "s" : ""} já feita${o.counterAttempts > 1 ? "s" : ""}` : ""}
+                  </div>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  <button class="btn btn-sm" data-offer="accept" data-oid="${o.id}">Aceitar</button>
+                  <button class="btn btn-sm btn-secondary" data-offer="counter" data-oid="${o.id}">Contrapor</button>
+                  <button class="btn btn-sm btn-secondary" data-offer="reject" data-oid="${o.id}" style="color:var(--danger)">Recusar</button>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function getCurrentRoundSafe() {
+  return getCurrentRound(state.competitions[MY_COMP_ID]) ?? 0;
+}
+
+function renderPlayerTable(players, kind, disabled = false) {
   if (!players.length) return `<p style="color:var(--muted)">Nenhum jogador disponível.</p>`;
   return `
     <table>
@@ -776,7 +922,7 @@ function renderPlayerTable(players, kind) {
             <td>${p.teamId ? state.teams[p.teamId]?.shortName ?? "-" : "<i style='color:var(--accent)'>livre</i>"}</td>
             <td>R$ ${fmt(p.contract.salary)}</td>
             <td>R$ ${fmt(p.marketValue)}</td>
-            <td><button class="btn btn-sm" data-action="${kind}" data-pid="${p.id}">${kind === "free" ? "Contratar" : "Ofertar"}</button></td>
+            <td><button class="btn btn-sm" data-action="${kind}" data-pid="${p.id}" ${disabled ? "disabled" : ""}>${kind === "free" ? "Contratar" : "Ofertar"}</button></td>
           </tr>
         `).join("")}
       </tbody>
@@ -1574,6 +1720,19 @@ function wireView() {
   $main.querySelectorAll("[data-action]").forEach(btn => {
     btn.onclick = () => handleBid(btn.dataset.action, btn.dataset.pid);
   });
+  $main.querySelectorAll("[data-offer]").forEach(btn => {
+    btn.onclick = () => handleOfferAction(btn.dataset.offer, btn.dataset.oid);
+  });
+  $main.querySelectorAll("[data-req]").forEach(btn => {
+    btn.onclick = () => handleRequestAction(btn.dataset.req, btn.dataset.rid);
+  });
+  $main.querySelectorAll("[data-unlist]").forEach(btn => {
+    btn.onclick = () => {
+      const res = unlistPlayer(state, MY_TEAM_ID, btn.dataset.unlist);
+      log((res.ok ? "✅ " : "❌ ") + res.message);
+      render();
+    };
+  });
   $main.querySelectorAll("[data-comp]").forEach(btn => {
     btn.onclick = () => { standingsView = btn.dataset.comp; render(); };
   });
@@ -1632,6 +1791,64 @@ function wireView() {
   }
 }
 
+function handleRequestAction(action, reqId) {
+  const req = state.transferRequests?.find(r => r.id === reqId);
+  if (!req) return;
+  const player = state.players[req.playerId];
+  if (!player) return;
+
+  if (action === "list") {
+    if (!confirm(`Listar ${player.name} pra venda? A IA priorizará propostas por ele.`)) return;
+  } else if (action === "promise") {
+    if (!confirm(`Prometer mais espaço pra ${player.name}? Recupera moral, mas você precisa cumprir escalando.`)) return;
+  } else if (action === "reject") {
+    if (!confirm(`Recusar o pedido de ${player.name}? A moral dele vai cair forte.`)) return;
+  }
+  const res = resolveTransferRequest(state, reqId, action);
+  log((res.ok ? "✅ " : "❌ ") + res.message);
+  render();
+}
+
+function handleOfferAction(action, offerId) {
+  const offer = state.transferOffers?.find(o => o.id === offerId);
+  if (!offer) return;
+  const fromTeam = state.teams[offer.fromTeamId];
+  const player = state.players[offer.playerId];
+  if (!fromTeam || !player) return;
+
+  if (action === "accept") {
+    if (!confirm(`Vender ${player.name} ao ${fromTeam.shortName} por R$ ${fmt(offer.fee)}?`)) return;
+    const res = respondToOffer(state, offerId, "accept");
+    log((res.accepted ? "✅ " : "❌ ") + res.message);
+    render();
+    return;
+  }
+
+  if (action === "reject") {
+    if (!confirm(`Recusar a proposta do ${fromTeam.shortName} por ${player.name}?`)) return;
+    const res = respondToOffer(state, offerId, "reject");
+    log("❌ " + res.message);
+    render();
+    return;
+  }
+
+  if (action === "counter") {
+    const suggestion = Math.round(offer.fee * 1.25);
+    const counterStr = prompt(
+      `Contrapor a proposta do ${fromTeam.shortName} por ${player.name}.\n` +
+      `· Oferta atual: R$ ${fmt(offer.fee)}\n` +
+      `· Valor de mercado: R$ ${fmt(player.marketValue)}\n\n` +
+      `Sua contraproposta (deve ser maior que a oferta atual):`,
+      String(suggestion)
+    );
+    if (!counterStr) return;
+    const counterFee = Number(counterStr);
+    const res = respondToOffer(state, offerId, "counter", counterFee);
+    log((res.accepted ? "✅ " : "❌ ") + res.message);
+    render();
+  }
+}
+
 function handleAcademyAction(action, pid) {
   const p = state.players[pid];
   if (!p) return;
@@ -1678,10 +1895,11 @@ function handleBid(kind, pid) {
     return;
   }
 
+  const round = getCurrentRoundSafe();
   if (kind === "free") {
     const sal = prompt(`Salário mensal para ${p.name} (esperado ~R$ ${fmt(expSal)}):`, String(expSal));
     if (!sal) return;
-    const res = signFreeAgent(state, { teamId: MY_TEAM_ID, playerId: pid, salaryOffer: Number(sal) });
+    const res = signFreeAgent(state, { teamId: MY_TEAM_ID, playerId: pid, salaryOffer: Number(sal), currentRound: round });
     log((res.accepted ? "✅ " : "❌ ") + res.message);
   } else {
     const fee = prompt(`Proposta por ${p.name} (valor: R$ ${fmt(p.marketValue)}):`, String(p.marketValue));
@@ -1689,7 +1907,7 @@ function handleBid(kind, pid) {
     const sal = prompt(`Salário oferecido (esperado ~R$ ${fmt(expSal)}):`, String(expSal));
     if (!sal) return;
     const res = makeBid(state, {
-      fromTeamId: MY_TEAM_ID, playerId: pid, fee: Number(fee), salaryOffer: Number(sal),
+      fromTeamId: MY_TEAM_ID, playerId: pid, fee: Number(fee), salaryOffer: Number(sal), currentRound: round,
     });
     log((res.accepted ? "✅ " : "❌ ") + res.message);
   }
@@ -2390,10 +2608,59 @@ async function closeWeek(round) {
   const myWages = tick.wages.find(w => w.teamId === MY_TEAM_ID);
   log(`Rodada ${round} fechada · ${myRev ? `bilheteria +R$ ${fmt(myRev.revenue)} · ` : ""}folha -R$ ${fmt(myWages.wagesPaid)}.`);
 
-  // Suspensões + IA de mercado
+  // Suspensões + IA de mercado (só durante janela)
   decrementSuspensions(state, allResults.flatMap(r => [r.homeTeamId, r.awayTeamId]));
-  const aiMoves = runAITransfers(state, rng, { excludeTeamId: MY_TEAM_ID });
+  const aiMoves = runAITransfers(state, rng, { excludeTeamId: MY_TEAM_ID, currentRound: round });
   for (const m of aiMoves) log(`🔁 ${m.message}`);
+
+  // Mercado em duas vias: IA propõe pelos jogadores do usuário (só na janela)
+  const newOffers = generateIncomingOffers(state, rng, MY_TEAM_ID, round);
+  for (const offer of newOffers) {
+    const fromTeam = state.teams[offer.fromTeamId];
+    log(`📩 Proposta: ${fromTeam.shortName} oferece R$ ${fmt(offer.fee)} por ${offer.playerName}.`);
+    state.inbox = state.inbox || [];
+    state.inbox.push({
+      id: `n_offer_${offer.id}`,
+      date: state.currentDate, type: "transfer",
+      priority: offer.fee >= 30_000_000 ? "high" : "normal",
+      subject: `📩 ${fromTeam.name} oferece R$ ${fmt(offer.fee)} por ${offer.playerName}`,
+      body: `Salário oferecido: R$ ${fmt(offer.salaryOffer)}/mês. Acesse o Mercado para aceitar, contrapor ou recusar. (Expira em 4 rodadas.)`,
+      read: false, teamFocus: MY_TEAM_ID,
+    });
+  }
+
+  // Pedidos de transferência (jogadores insatisfeitos pedem pra sair)
+  const newRequests = generateTransferRequests(state, rng, MY_TEAM_ID, round);
+  for (const req of newRequests) {
+    const reasonLabel = ({
+      very_low_morale: "moral muito baixa",
+      low_morale: "moral baixa",
+      veteran_unhappy: "veterano insatisfeito",
+    })[req.reason] || "insatisfação";
+    log(`🔻 ${req.playerName} pediu para sair (${reasonLabel}).`);
+    state.inbox = state.inbox || [];
+    state.inbox.push({
+      id: `n_req_${req.id}`,
+      date: state.currentDate, type: "transfer", priority: "high",
+      subject: `🔻 ${req.playerName} pediu para sair do clube`,
+      body: `Motivo: ${reasonLabel}. No Mercado você pode listá-lo pra venda, prometer mais espaço (acalma) ou recusar (perde moral).`,
+      read: false, teamFocus: MY_TEAM_ID,
+    });
+  }
+
+  // Inbox: notifica janela abrindo/fechando
+  const winStatus = getTransferWindowStatus(round);
+  const prevWinStatus = state._prevWindowOpen;
+  if (prevWinStatus !== winStatus.open) {
+    state._prevWindowOpen = winStatus.open;
+    state.inbox.push({
+      id: `n_window_${round}_${winStatus.open}`,
+      date: state.currentDate, type: "transfer", priority: "normal",
+      subject: winStatus.open ? `${winStatus.icon} Janela de transferências ABERTA` : `${winStatus.icon} Janela de transferências FECHADA`,
+      body: winStatus.label,
+      read: false,
+    });
+  }
 
   // Manchetes
   generateNewsForRound(state, round, allResults, MY_TEAM_ID);
