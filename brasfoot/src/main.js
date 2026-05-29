@@ -37,6 +37,11 @@ import {
 import {
   applyTraining, pickAITrainingFocus, TRAINING_FOCI, DEFAULT_TRAINING, FOCUS_KEYS,
 } from "./engine/training.js";
+import {
+  createEstaduais, getEstadualMatchesForRound, advanceEstadualPhase,
+  applyEstadualKnockoutResult, estadualTotalRounds, isEstadualDone,
+  getEstadualGroupComps, ESTADUAL_STATES,
+} from "./engine/estadual.js";
 import { saveGame, loadGame, listSaves, deleteSave } from "./db.js";
 import { SERIE_A_SEED, SERIE_B_SEED, SERIE_C_SEED } from "../data/teams.seed.js";
 import { TEAM_LOGOS } from "../data/team-logos.js";
@@ -235,6 +240,9 @@ async function startGame(teamId) {
     competitions: {}, log: [],
     transferOffers: [],
     transferRequests: [],
+    seasonPhase: "estadual",   // estadual (pré-temporada) → national
+    estadualRound: 1,
+    estaduais: null,
     settings: { difficulty: "normal", language: "pt-BR", seed },
   };
 
@@ -263,6 +271,9 @@ async function startGame(teamId) {
 
   // Promove a primeira leva de prospectos das categorias de base (1ª temporada)
   generateSeasonalYouth(state, rng);
+
+  // Cria os estaduais (pré-temporada)
+  state.estaduais = createEstaduais(state, 2026, rng);
 
   // Cria Série C (1ª Fase) — grupos e final são criados em runtime
   state.competitions.brasileirao_c_p1 = createSerieCPhase1({
@@ -319,23 +330,37 @@ function renderShell() {
     console.warn("MY_COMP_ID inválido e nenhuma competição encontrada para", MY_TEAM_ID);
     return;
   }
+  const isEstadual = state.seasonPhase === "estadual";
   const round = getCurrentRound(comp);
   const total = Math.max(...comp.fixtures.map(m => m.round));
 
-  const nextMatch = findNextMatch();
-  const nextOpp = nextMatch ? state.teams[
-    nextMatch.homeTeamId === MY_TEAM_ID ? nextMatch.awayTeamId : nextMatch.homeTeamId
-  ] : null;
-  const nextLocation = nextMatch
-    ? (nextMatch.homeTeamId === MY_TEAM_ID ? "🏠" : "✈️")
-    : "";
+  if (isEstadual) {
+    const eRound = state.estadualRound || 1;
+    const eMax = getMaxEstadualRound();
+    const userEst = getUserEstadual();
+    $topInfo.innerHTML = `
+      <div>Temporada <b>${state.season}</b></div>
+      <div style="color:var(--warning)"><b>PRÉ-TEMPORADA</b> · Estaduais</div>
+      <div>Rodada <b>${Math.min(eRound, eMax)}/${eMax}</b></div>
+      ${userEst ? `<div>Seu estadual: <b>${userEst.name}</b></div>` : `<div style="color:var(--muted)">Seu time não tem estadual</div>`}
+      <div>Caixa <b>R$ ${fmt(my.finances.balance)}</b></div>
+    `;
+  } else {
+    const nextMatch = findNextMatch();
+    const nextOpp = nextMatch ? state.teams[
+      nextMatch.homeTeamId === MY_TEAM_ID ? nextMatch.awayTeamId : nextMatch.homeTeamId
+    ] : null;
+    const nextLocation = nextMatch
+      ? (nextMatch.homeTeamId === MY_TEAM_ID ? "🏠" : "✈️")
+      : "";
 
-  $topInfo.innerHTML = `
-    <div>Temporada <b>${state.season}</b></div>
-    <div>Rodada <b>${round ?? total}/${total}</b></div>
-    ${nextOpp ? `<div>Próx. <b>${nextLocation} vs ${nextOpp.shortName}</b></div>` : ""}
-    <div>Caixa <b>R$ ${fmt(my.finances.balance)}</b></div>
-  `;
+    $topInfo.innerHTML = `
+      <div>Temporada <b>${state.season}</b></div>
+      <div>Rodada <b>${round ?? total}/${total}</b></div>
+      ${nextOpp ? `<div>Próx. <b>${nextLocation} vs ${nextOpp.shortName}</b></div>` : ""}
+      <div>Caixa <b>R$ ${fmt(my.finances.balance)}</b></div>
+    `;
+  }
 
   $teamCard.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
@@ -360,6 +385,30 @@ function renderShell() {
     btn.onclick = () => { view = btn.dataset.view; render(); };
   });
 
+  // Botão durante a pré-temporada (estaduais)
+  if (isEstadual) {
+    $btnPlay.disabled = false;
+    const userEst = getUserEstadual();
+    const eRound = state.estadualRound || 1;
+    if (userEst) {
+      const mm = getEstadualMatchesForRound(state, userEst, eRound)
+        .find(m => !m.match.played && (m.match.homeTeamId === MY_TEAM_ID || m.match.awayTeamId === MY_TEAM_ID));
+      if (mm) {
+        const oppId = mm.match.homeTeamId === MY_TEAM_ID ? mm.match.awayTeamId : mm.match.homeTeamId;
+        const local = mm.match.homeTeamId === MY_TEAM_ID ? "🏠" : "✈️";
+        const kindLabel = mm.kind === "group" ? "Estadual" : mm.kind === "semi" ? "SEMI" : "FINAL";
+        $btnPlay.textContent = `🏟️ ${kindLabel} · ${local} vs ${state.teams[oppId].shortName}`;
+      } else {
+        $btnPlay.textContent = `🏟️ AVANÇAR PRÉ-TEMPORADA`;
+      }
+    } else {
+      $btnPlay.textContent = `🏟️ SIMULAR PRÉ-TEMPORADA`;
+    }
+    $btnPlay.onclick = playRound;
+    injectResetButton();
+    return;
+  }
+
   if (round == null) {
     $btnPlay.disabled = false;
     $btnPlay.textContent = "▶ INICIAR NOVA TEMPORADA";
@@ -383,21 +432,23 @@ function renderShell() {
     }
   }
   $btnPlay.onclick = playRound;
+  injectResetButton();
+}
 
-  // Botão de "novo jogo" injetado uma vez
-  if (!document.getElementById("btn-reset-save")) {
-    const btn = document.createElement("button");
-    btn.id = "btn-reset-save";
-    btn.className = "btn-toggle";
-    btn.style.cssText = "width:calc(100% - 24px);margin:8px 12px 0;font-size:11px";
-    btn.textContent = "Apagar save e recomeçar";
-    btn.onclick = async () => {
-      if (!confirm("Apagar progresso e voltar à seleção de time?")) return;
-      if (state?.saveId) await deleteSave(state.saveId);
-      location.reload();
-    };
-    document.querySelector(".play-section").appendChild(btn);
-  }
+// Botão de "novo jogo" injetado uma vez na sidebar
+function injectResetButton() {
+  if (document.getElementById("btn-reset-save")) return;
+  const btn = document.createElement("button");
+  btn.id = "btn-reset-save";
+  btn.className = "btn-toggle";
+  btn.style.cssText = "width:calc(100% - 24px);margin:8px 12px 0;font-size:11px";
+  btn.textContent = "Apagar save e recomeçar";
+  btn.onclick = async () => {
+    if (!confirm("Apagar progresso e voltar à seleção de time?")) return;
+    if (state?.saveId) await deleteSave(state.saveId);
+    location.reload();
+  };
+  document.querySelector(".play-section").appendChild(btn);
 }
 
 function render() {
@@ -521,6 +572,10 @@ function renderLineup() {
 
 // -------------------- View: Classificação --------------------
 function renderStandings() {
+  // Durante a pré-temporada, a aba mostra os estaduais
+  if (state.seasonPhase === "estadual") {
+    return renderEstaduais();
+  }
   // Branch especial pra Série C (multi-fase)
   if ((standingsView || "").startsWith("brasileirao_c")) {
     return renderStandingsSerieC();
@@ -585,6 +640,111 @@ function renderStandings() {
     <div class="card">
       <h3>Próximos Jogos do ${state.teams[MY_TEAM_ID].shortName}</h3>
       ${renderUpcoming()}
+    </div>
+  `;
+}
+
+function renderEstaduais() {
+  const estaduais = state.estaduais || {};
+  const userTeam = state.teams[MY_TEAM_ID];
+  const userUf = userTeam?.state;
+  // Ordena: estadual do usuário primeiro
+  const ufs = Object.keys(estaduais).sort((a, b) =>
+    (b === userUf) - (a === userUf) || a.localeCompare(b)
+  );
+
+  if (!ufs.length) {
+    return `<div class="view-title">Pré-temporada</div>
+      <div class="card"><p style="color:var(--muted)">Nenhum estadual nesta temporada.</p></div>`;
+  }
+
+  return `
+    <div class="view-title">Pré-temporada · Estaduais ${state.season}</div>
+    <div class="view-sub">
+      ${estaduais[userUf]
+        ? `Seu time disputa o <b>${estaduais[userUf].name}</b>.`
+        : `Seu time (${userUf}) não tem estadual neste MVP — você acompanha os outros.`}
+    </div>
+    ${ufs.map(uf => renderOneEstadual(estaduais[uf], uf === userUf)).join("")}
+  `;
+}
+
+function renderOneEstadual(e, isMine) {
+  const groupComps = getEstadualGroupComps(state, e);
+  const phaseLabel = {
+    groups: "Fase de grupos", semis: "Semifinais", final: "Final", done: "Encerrado",
+  }[e.phase] || "—";
+
+  const groupsHtml = groupComps.length === 1
+    ? `<div class="card"><h3>${e.name} · Classificação</h3>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:8px">Top 4 avançam às semifinais.</p>
+        ${renderStandingsTable(groupComps[0], { highlightSlots: [4, 0] })}</div>`
+    : `<div class="grid-2">
+        ${groupComps.map(c => `
+          <div class="card"><h3>${c.name.split("·").pop().trim()}</h3>
+            <p style="font-size:11px;color:var(--muted);margin-bottom:8px">Top 2 avançam.</p>
+            ${renderStandingsTable(c, { highlightSlots: [2, 0] })}</div>
+        `).join("")}
+      </div>`;
+
+  const koHtml = (e.knockout.semis.length || e.knockout.final)
+    ? `<div class="card">
+        <h3>${e.name} · Mata-mata</h3>
+        <div class="bracket" style="grid-template-columns:repeat(2,1fr);max-width:560px">
+          <div class="bracket-col">
+            <div class="bracket-col-title">Semifinais</div>
+            <div class="bracket-col-body">
+              ${e.knockout.semis.length
+                ? e.knockout.semis.map(s => renderEstadualBracketTie(s)).join("")
+                : `<div class="bracket-tie pending">aguardando grupos</div>`}
+            </div>
+          </div>
+          <div class="bracket-col">
+            <div class="bracket-col-title">Final</div>
+            <div class="bracket-col-body">
+              ${e.knockout.final
+                ? renderEstadualBracketTie(e.knockout.final)
+                : `<div class="bracket-tie pending">aguardando semis</div>`}
+            </div>
+          </div>
+        </div>
+        ${e.champion ? `<div class="bracket-champion" style="margin-top:12px">🏆 Campeão: ${state.teams[e.champion].name}</div>` : ""}
+      </div>`
+    : "";
+
+  return `
+    <div style="margin-bottom:8px;padding:8px 4px;border-left:3px solid ${isMine ? "var(--accent)" : "var(--border)"};padding-left:12px">
+      <span style="font-weight:700;font-size:15px">${e.name}</span>
+      <span style="color:var(--muted);font-size:12px;margin-left:8px">${phaseLabel}</span>
+      ${isMine ? `<span class="badge" style="background:var(--accent);color:#000;margin-left:8px">SEU TIME</span>` : ""}
+    </div>
+    ${groupsHtml}
+    ${koHtml}
+  `;
+}
+
+function renderEstadualBracketTie(tie) {
+  const home = state.teams[tie.homeTeamId];
+  const away = state.teams[tie.awayTeamId];
+  if (!home || !away) return `<div class="bracket-tie pending">a definir</div>`;
+  const isMine = tie.homeTeamId === MY_TEAM_ID || tie.awayTeamId === MY_TEAM_ID;
+  const played = tie.leg?.played;
+  const hWon = tie.winnerId === tie.homeTeamId;
+  const aWon = tie.winnerId === tie.awayTeamId;
+  const sh = played ? tie.leg.score.home : "—";
+  const sa = played ? tie.leg.score.away : "—";
+  return `
+    <div class="bracket-tie ${isMine ? "mine" : ""}">
+      <div class="bracket-row ${hWon ? "winner" : (aWon ? "loser" : "")}">
+        ${teamLogo(home.id, 14)}
+        <span class="name" title="${home.name}">${home.shortName}</span>
+        <span class="score">${sh}</span>
+      </div>
+      <div class="bracket-row ${aWon ? "winner" : (hWon ? "loser" : "")}">
+        ${teamLogo(away.id, 14)}
+        <span class="name" title="${away.name}">${away.shortName}</span>
+        <span class="score">${sa}</span>
+      </div>
     </div>
   `;
 }
@@ -1151,6 +1311,82 @@ function showPenaltyShootoutModal(tie, onContinue) {
       container.remove();
       onContinue();
     }
+  });
+}
+
+// -------------------- Modal: Sorteio dos Grupos do Estadual --------------------
+function showEstadualDrawModal(estadual, onContinue) {
+  const groupComps = getEstadualGroupComps(state, estadual);
+  if (!groupComps.length) { onContinue(); return; }
+
+  const container = document.createElement("div");
+  container.className = "modal-backdrop visible";
+  container.style.zIndex = "300";
+
+  container.innerHTML = `
+    <div class="modal" style="max-width:680px;max-height:88vh;display:flex;flex-direction:column">
+      <div style="padding:18px 24px;border-bottom:1px solid var(--border);text-align:center">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px">Pré-temporada ${state.season}</div>
+        <h2 style="font-size:22px;margin:6px 0 0">🏟️ Sorteio · ${estadual.name}</h2>
+        <div style="color:var(--muted);font-size:12px;margin-top:4px">
+          ${groupComps.length === 1 ? "Grupo único · top 4 às semifinais" : `${groupComps.length} grupos · top 2 de cada às semifinais`}
+        </div>
+      </div>
+      <div id="est-draw-body" style="padding:18px 24px;overflow-y:auto;flex:1;min-height:140px;display:grid;grid-template-columns:repeat(${Math.min(groupComps.length, 2)},1fr);gap:16px"></div>
+      <div style="padding:14px 24px;border-top:1px solid var(--border);text-align:center">
+        <button class="btn" id="est-draw-btn">Pular</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(container);
+  const body = container.querySelector("#est-draw-body");
+  const btn = container.querySelector("#est-draw-btn");
+
+  // Cria colunas dos grupos
+  const cols = groupComps.map(c => {
+    const col = document.createElement("div");
+    col.innerHTML = `<div style="text-align:center;font-weight:700;font-size:13px;color:var(--accent);margin-bottom:8px">${c.name.split("·").pop().trim()}</div>`;
+    body.appendChild(col);
+    return { comp: c, el: col, teamIds: [...c.teams] };
+  });
+
+  // Sequência de revelação intercalando os grupos
+  const sequence = [];
+  const maxLen = Math.max(...cols.map(c => c.teamIds.length));
+  for (let i = 0; i < maxLen; i++) {
+    for (const col of cols) {
+      if (col.teamIds[i]) sequence.push({ col, teamId: col.teamIds[i] });
+    }
+  }
+
+  let idx = 0, finished = false, interval = null;
+  const revealOne = () => {
+    if (idx >= sequence.length) {
+      finished = true;
+      clearInterval(interval);
+      btn.textContent = "Aos jogos ▶";
+      return;
+    }
+    const { col, teamId } = sequence[idx];
+    const team = state.teams[teamId];
+    const isMine = teamId === MY_TEAM_ID;
+    const row = document.createElement("div");
+    row.className = "draw-tie" + (isMine ? " mine" : "");
+    row.style.cssText = "display:flex;align-items:center;gap:8px;padding:7px 10px;margin-bottom:5px;font-size:12px";
+    row.innerHTML = `${teamLogo(team.id, 20)} <span style="font-weight:${isMine ? "800" : "500"}">${team.name}</span>`;
+    col.el.appendChild(row);
+    idx++;
+  };
+
+  revealOne();
+  interval = setInterval(revealOne, 280);
+
+  btn.onclick = () => {
+    if (!finished) { clearInterval(interval); while (idx < sequence.length) revealOne(); finished = true; btn.textContent = "Aos jogos ▶"; }
+    else { container.remove(); onContinue(); }
+  };
+  container.addEventListener("click", (e) => {
+    if (e.target === container && finished) { container.remove(); onContinue(); }
   });
 }
 
@@ -1916,6 +2152,184 @@ function handleBid(kind, pid) {
   render();
 }
 
+// -------------------- Pré-temporada: Estaduais --------------------
+function getUserEstadual() {
+  const team = state.teams[MY_TEAM_ID];
+  if (!team || !state.estaduais) return null;
+  return state.estaduais[team.state] || null;
+}
+
+function getMaxEstadualRound() {
+  const es = state.estaduais || {};
+  const vals = Object.values(es).map(e => estadualTotalRounds(e));
+  return vals.length ? Math.max(...vals) : 0;
+}
+
+// Coleta partidas de TODOS os estaduais nesta rodada (exceto a do usuário).
+function collectEstadualParallels(round, excludeMatch) {
+  const list = [];
+  for (const e of Object.values(state.estaduais || {})) {
+    for (const mm of getEstadualMatchesForRound(state, e, round)) {
+      if (mm.match.played || mm.match === excludeMatch) continue;
+      list.push({
+        match: mm.match,
+        isCup: false,
+        compId: mm.compId,        // só pra grupos
+        estadual: { uf: e.uf, kind: mm.kind },
+      });
+    }
+  }
+  return list;
+}
+
+// Aplica resultado de uma partida estadual (grupo ou mata-mata).
+// estadualMeta: { uf, kind: "group"|"semi"|"final", compId? }
+function applyEstadualMatchResult(match, result, estadualMeta) {
+  if (estadualMeta.kind === "group") {
+    const comp = state.competitions[estadualMeta.compId];
+    if (comp) applyMatchResult(state, match, result, comp); // já seta tudo + standings
+  } else {
+    match.played = true;
+    match.score = { ...result.score };
+    match.events = result.events;
+    match.date = state.currentDate;
+    match.lineups = result.lineups;
+    match.stats = result.stats;
+    applyMatchEffects(state, result, "estadual");
+    const est = state.estaduais[estadualMeta.uf];
+    applyEstadualKnockoutResult(est, match, rng);
+  }
+}
+
+function playEstadualWeek() {
+  const maxRound = getMaxEstadualRound();
+  const round = state.estadualRound || 1;
+
+  // Sorteio dos grupos antes da estreia (só do estadual do usuário, 1x)
+  const userEstForDraw = getUserEstadual();
+  if (userEstForDraw && !userEstForDraw.drawShown && round === 1) {
+    userEstForDraw.drawShown = true;
+    showEstadualDrawModal(userEstForDraw, () => playEstadualWeek());
+    return;
+  }
+
+  if (round > maxRound) {
+    finishEstadualPhase();
+    render();
+    return;
+  }
+
+  // Jogo do usuário nesta rodada?
+  const userEst = getUserEstadual();
+  let userMatch = null;
+  if (userEst) {
+    const mm = getEstadualMatchesForRound(state, userEst, round)
+      .find(m => !m.match.played && (m.match.homeTeamId === MY_TEAM_ID || m.match.awayTeamId === MY_TEAM_ID));
+    if (mm) userMatch = mm;
+  }
+
+  if (userMatch) {
+    const home = state.teams[userMatch.match.homeTeamId];
+    const away = state.teams[userMatch.match.awayTeamId];
+    const sim = createMatchSimulator({ homeTeam: home, awayTeam: away, playersById: state.players, rng });
+    const parallels = collectEstadualParallels(round, userMatch.match);
+
+    playMatchOnScreen(userMatch.match, sim, async () => {
+      applyEstadualMatchResult(userMatch.match, sim.getResult(), { uf: userEst.uf, kind: userMatch.kind, compId: userMatch.compId });
+      finalizeEstadualRound(round);
+      try { await saveGame(state); } catch (e) { console.warn(e); }
+      render();
+    }, parallels);
+  } else {
+    // Usuário não joga (bye, estadual já acabou, ou sem estadual) — simula tudo da rodada
+    simulateEstadualRoundInstant(round);
+    finalizeEstadualRound(round);
+    try { saveGame(state); } catch (e) { console.warn(e); }
+    render();
+  }
+}
+
+function simulateEstadualRoundInstant(round) {
+  for (const e of Object.values(state.estaduais || {})) {
+    for (const mm of getEstadualMatchesForRound(state, e, round)) {
+      if (mm.match.played) continue;
+      const r = simulateMatch({
+        homeTeam: state.teams[mm.match.homeTeamId],
+        awayTeam: state.teams[mm.match.awayTeamId],
+        playersById: state.players, rng,
+      });
+      applyEstadualMatchResult(mm.match, r, { uf: e.uf, kind: mm.kind, compId: mm.compId });
+    }
+  }
+}
+
+function finalizeEstadualRound(round) {
+  // Finanças: bilheteria dos jogos desta rodada + folha semanal
+  const roundResults = [];
+  for (const e of Object.values(state.estaduais || {})) {
+    for (const mm of getEstadualMatchesForRound(state, e, round)) {
+      if (mm.match.played && mm.match.score) {
+        roundResults.push({
+          homeTeamId: mm.match.homeTeamId,
+          awayTeamId: mm.match.awayTeamId,
+          score: mm.match.score,
+        });
+      }
+    }
+  }
+  const tick = weeklyTick(state, roundResults, "estadual");
+  const myRev = tick.revenues.find(r => r.teamId === MY_TEAM_ID);
+  const myWages = tick.wages.find(w => w.teamId === MY_TEAM_ID);
+  if (myWages) {
+    log(`Pré-temporada R${round}${myRev ? ` · bilheteria +R$ ${fmt(myRev.revenue)}` : ""} · folha -R$ ${fmt(myWages.wagesPaid)}.`);
+  }
+
+  // Avança fases de cada estadual (grupos→semis→final→campeão)
+  for (const e of Object.values(state.estaduais || {})) {
+    advanceEstadualPhase(state, e, state.season, rng);
+  }
+  state.estadualRound = round + 1;
+
+  // Acabou a pré-temporada?
+  if (state.estadualRound > getMaxEstadualRound()) {
+    finishEstadualPhase();
+  }
+}
+
+function finishEstadualPhase() {
+  // Garante que todos os estaduais terminaram (simula resto se faltou)
+  const maxRound = getMaxEstadualRound();
+  for (let r = (state.estadualRound || 1); r <= maxRound; r++) {
+    simulateEstadualRoundInstant(r);
+    for (const e of Object.values(state.estaduais || {})) {
+      advanceEstadualPhase(state, e, state.season, rng);
+    }
+  }
+
+  // Premia campeões estaduais
+  for (const e of Object.values(state.estaduais || {})) {
+    if (!e.champion) continue;
+    const champ = state.teams[e.champion];
+    champ.trophies.push({ competitionId: `estadual_${e.uf.toLowerCase()}`, season: state.season });
+    champ.finances.balance += 3_000_000; // prêmio estadual
+    state.inbox = state.inbox || [];
+    state.inbox.push({
+      id: `n_estadual_${e.uf}_${state.season}`,
+      date: state.currentDate, type: "season",
+      priority: e.champion === MY_TEAM_ID ? "high" : "normal",
+      subject: `🏆 ${champ.name} é campeão do ${e.name} ${state.season}`,
+      body: `${champ.name} conquistou o ${e.name}. Prêmio: R$ 3.000.000.`,
+      read: false, teamFocus: e.champion,
+    });
+    log(`🏆 ${champ.shortName} campeão do ${e.name}!`);
+  }
+
+  // Transição pra temporada nacional
+  state.seasonPhase = "national";
+  state.estadualRound = 1;
+  log(`Pré-temporada encerrada. Começa o Brasileirão ${state.season}!`);
+}
+
 // -------------------- Jogar Rodada --------------------
 // Cada clique do usuário joga UMA partida ao vivo, mas TODAS as outras
 // partidas da rodada (das duas séries e da copa) acontecem em paralelo,
@@ -1923,6 +2337,12 @@ function handleBid(kind, pid) {
 // todos os outros resultados já estão prontos. Se for o último compromisso
 // do usuário na rodada, finanças/notícias/IA de mercado rodam aqui.
 function playRound() {
+  // Pré-temporada: estaduais antes do nacional
+  if (state.seasonPhase === "estadual") {
+    playEstadualWeek();
+    return;
+  }
+
   const comp = state.competitions[MY_COMP_ID];
   const round = getCurrentRound(comp);
   if (round == null) return;
@@ -2381,6 +2801,8 @@ function playMatchOnScreen(match, sim, onContinue, parallels = []) {
       const r = ps.sim.getResult();
       if (ps.isCup) {
         applyCupLegToState(ps.match, r);
+      } else if (ps.estadual) {
+        applyEstadualMatchResult(ps.match, r, { ...ps.estadual, compId: ps.compId });
       } else {
         applyMatchResult(state, ps.match, r, state.competitions[ps.compId]);
       }
@@ -2894,6 +3316,15 @@ function showSeasonRecap(report) {
       state.teams[MY_TEAM_ID].lineup = autoLineup(state.teams[MY_TEAM_ID]);
     }
 
+    // Recria estaduais e volta pra pré-temporada da nova temporada.
+    // Limpa as competições de grupo da temporada anterior.
+    for (const cid of Object.keys(state.competitions)) {
+      if (cid.startsWith("estadual_")) delete state.competitions[cid];
+    }
+    state.estaduais = createEstaduais(state, state.season, rng);
+    state.seasonPhase = "estadual";
+    state.estadualRound = 1;
+
     const myCompName = state.competitions[MY_COMP_ID]?.name ?? "—";
     alert(
       `Fim da temporada ${report.season}!\n\n` +
@@ -3381,6 +3812,17 @@ function renderTrainingCard(team) {
 
 // -------------------- Próximo jogo --------------------
 function findNextMatch() {
+  // Pré-temporada: próxima partida do usuário no estadual dele
+  if (state.seasonPhase === "estadual") {
+    const userEst = getUserEstadual();
+    if (!userEst) return null;
+    for (let r = (state.estadualRound || 1); r <= estadualTotalRounds(userEst); r++) {
+      const mm = getEstadualMatchesForRound(state, userEst, r)
+        .find(m => !m.match.played && (m.match.homeTeamId === MY_TEAM_ID || m.match.awayTeamId === MY_TEAM_ID));
+      if (mm) return mm.match;
+    }
+    return null;
+  }
   const comp = state.competitions[MY_COMP_ID];
   if (!comp) return null;
   return comp.fixtures.find(m =>
