@@ -16,7 +16,7 @@ import { createCupCompetition } from "./engine/cup.js";
 import { createSerieCPhase1 } from "./engine/serie-c.js";
 import { generateSeasonalYouth, promoteProspect, sellProspect, releaseProspect } from "./engine/academy.js";
 import { pickAITrainingFocus } from "./engine/training.js";
-import { createEstaduais } from "./engine/estadual.js";
+import { createEstaduais, getEstadualMatchesForRound } from "./engine/estadual.js";
 import { saveGame, listSaves, deleteSave } from "./db.js";
 import { SERIE_A_SEED, SERIE_B_SEED, SERIE_C_SEED } from "../data/teams.seed.js";
 import { state, rng, setState, setRng, ui } from "./core/store.js";
