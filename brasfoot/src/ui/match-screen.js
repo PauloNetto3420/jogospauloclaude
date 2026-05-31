@@ -22,7 +22,7 @@ const DEFAULT_SPEED = "1x";
 const EVENT_PAUSE_BONUS = 800;
 
 export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
-  const $overlay = document.querySelector(".overlay");
+  const $overlay = document.getElementById("match-overlay");
   const home = state.teams[match.homeTeamId];
   const away = state.teams[match.awayTeamId];
   // Qual lado o usuário controla
