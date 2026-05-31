@@ -23,7 +23,7 @@ import { generateNewsForRound, generateSeasonEndNews } from "./engine/news.js";
 import {
   createCupCompetition, getCupLegsForRound, applyCupLegResult,
   maybeDrawNextPhase, drawPhase, payPhasePrizes,
-  CUP_PHASE_ORDER, CUP_PHASE_META, CHAMPION_BONUS,
+  CUP_PHASE_ORDER, CHAMPION_BONUS,
 } from "./engine/cup.js";
 import {
   createSerieCPhase1, createSerieCGroups, createSerieCFinal,
@@ -44,7 +44,7 @@ import {
 } from "./engine/estadual.js";
 import { saveGame, loadGame, listSaves, deleteSave } from "./db.js";
 import { SERIE_A_SEED, SERIE_B_SEED, SERIE_C_SEED } from "../data/teams.seed.js";
-import { state, rng, setState, setRng } from "./core/store.js";
+import { state, rng, setState, setRng, ui } from "./core/store.js";
 import { fmt, ovrClass, pct, teamLogo } from "./ui/format.js";
 import { applyTeamTheme } from "./ui/theme.js";
 import {
@@ -52,6 +52,11 @@ import {
   showPenaltyShootoutModal, showEstadualDrawModal, showCupDrawModal,
   getContractYearsLeft, registerModalActions,
 } from "./ui/modals.js";
+import { renderFinance } from "./ui/views/finance.js";
+import { renderInbox } from "./ui/views/inbox.js";
+import { renderAcademy } from "./ui/views/academy.js";
+import { renderCalendar } from "./ui/views/calendar.js";
+import { renderCup } from "./ui/views/cup.js";
 
 // -------------------- Constantes --------------------
 const POS_GROUP = {
@@ -79,15 +84,9 @@ const VIEWS = [
 ];
 
 // Estado da aba Calendário
-let calendarMode = "mine"; // "mine" | "all"
-let calendarCompId = null;  // se null usa MY_COMP_ID
 
 // -------------------- Estado de UI local --------------------
 // (state e rng vêm do core/store.js via live-binding; reatribuídos por setState/setRng)
-let view = "lineup";
-let MY_TEAM_ID = null;
-let MY_COMP_ID = null;          // qual campeonato o usuário disputa
-let standingsView = null;       // qual tabela está aberta na aba Classificação
 
 const $main = document.getElementById("main");
 const $topInfo = document.getElementById("topbar-info");
@@ -153,21 +152,21 @@ function renderBootScreen(save) {
 
 function loadIntoState(save) {
   setState(save);
-  MY_TEAM_ID = save.managedTeamId;
-  MY_COMP_ID = SERIE_A_SEED.some(t => t.id === MY_TEAM_ID) ? "brasileirao_a" : "brasileirao_b";
+  ui.myTeamId = save.managedTeamId;
+  ui.myCompId = SERIE_A_SEED.some(t => t.id === ui.myTeamId) ? "brasileirao_a" : "brasileirao_b";
   // Após mudança de divisão por rebaixamento/acesso, recalcula
-  if (!state.competitions[MY_COMP_ID]?.teams.includes(MY_TEAM_ID)) {
-    MY_COMP_ID = Object.keys(state.competitions)
-      .find(cid => state.competitions[cid].teams.includes(MY_TEAM_ID)) ?? MY_COMP_ID;
+  if (!state.competitions[ui.myCompId]?.teams.includes(ui.myTeamId)) {
+    ui.myCompId = Object.keys(state.competitions)
+      .find(cid => state.competitions[cid].teams.includes(ui.myTeamId)) ?? ui.myCompId;
   }
-  standingsView = MY_COMP_ID;
+  ui.standingsView = ui.myCompId;
   setRng(createRng(state.settings?.seed ?? Date.now()));
   syncPlayerIdCounter(state.players);
 
-  applyTeamTheme(state.teams[MY_TEAM_ID].colors);
+  applyTeamTheme(state.teams[ui.myTeamId].colors);
 
   $btnPlay.style.display = "";
-  view = "lineup";
+  ui.view = "lineup";
   render();
 }
 
@@ -232,11 +231,11 @@ function teamCard(t) {
 }
 
 async function startGame(teamId) {
-  MY_TEAM_ID = teamId;
-  if (SERIE_A_SEED.some(t => t.id === teamId)) MY_COMP_ID = "brasileirao_a";
-  else if (SERIE_B_SEED.some(t => t.id === teamId)) MY_COMP_ID = "brasileirao_b";
-  else MY_COMP_ID = "brasileirao_c_p1"; // Série C começa na 1ª Fase
-  standingsView = MY_COMP_ID;
+  ui.myTeamId = teamId;
+  if (SERIE_A_SEED.some(t => t.id === teamId)) ui.myCompId = "brasileirao_a";
+  else if (SERIE_B_SEED.some(t => t.id === teamId)) ui.myCompId = "brasileirao_b";
+  else ui.myCompId = "brasileirao_c_p1"; // Série C começa na 1ª Fase
+  ui.standingsView = ui.myCompId;
   const seed = Date.now() & 0xffffffff;
   setRng(createRng(seed));
 
@@ -244,7 +243,7 @@ async function startGame(teamId) {
     saveId: `save_${Date.now()}`,
     season: 2026,
     currentDate: "2026-04-01",
-    managedTeamId: MY_TEAM_ID,
+    managedTeamId: ui.myTeamId,
     teams: {}, players: {}, freeAgents: [],
     competitions: {}, log: [],
     transferOffers: [],
@@ -307,36 +306,36 @@ async function startGame(teamId) {
   // Diversifica formações e foco de treino da IA (usuário começa em 4-3-3 + técnica)
   const aiFormations = Object.keys(FORMATIONS);
   for (const t of Object.values(state.teams)) {
-    if (t.id !== MY_TEAM_ID) {
+    if (t.id !== ui.myTeamId) {
       t.tactics.formation = aiFormations[rng.int(0, aiFormations.length - 1)];
       t.tactics.training = pickAITrainingFocus(rng, t.tactics.formation);
     }
   }
 
-  state.teams[MY_TEAM_ID].lineup = autoLineup(state.teams[MY_TEAM_ID]);
+  state.teams[ui.myTeamId].lineup = autoLineup(state.teams[ui.myTeamId]);
 
-  applyTeamTheme(state.teams[MY_TEAM_ID].colors);
+  applyTeamTheme(state.teams[ui.myTeamId].colors);
 
   try { await saveGame(state); } catch (e) { console.warn("Save inicial falhou:", e); }
 
   $btnPlay.style.display = "";
-  view = "lineup";
+  ui.view = "lineup";
   render();
 }
 
 // -------------------- Render principal --------------------
 function renderShell() {
-  const my = state.teams[MY_TEAM_ID];
+  const my = state.teams[ui.myTeamId];
   // Se a competição atual sumiu (ex.: subcomps da Série C após endSeason),
   // recoloca o usuário na sua nova divisão antes de seguir.
-  if (!state.competitions[MY_COMP_ID]) {
+  if (!state.competitions[ui.myCompId]) {
     const resolved = resolveUserCompetition();
-    if (resolved) { MY_COMP_ID = resolved; standingsView = MY_COMP_ID; }
+    if (resolved) { ui.myCompId = resolved; ui.standingsView = ui.myCompId; }
   }
-  const comp = state.competitions[MY_COMP_ID];
+  const comp = state.competitions[ui.myCompId];
   if (!comp) {
     // Ainda nada — não trava a UI, apenas avisa
-    console.warn("MY_COMP_ID inválido e nenhuma competição encontrada para", MY_TEAM_ID);
+    console.warn("ui.myCompId inválido e nenhuma competição encontrada para", ui.myTeamId);
     return;
   }
   const isEstadual = state.seasonPhase === "estadual";
@@ -357,10 +356,10 @@ function renderShell() {
   } else {
     const nextMatch = findNextMatch();
     const nextOpp = nextMatch ? state.teams[
-      nextMatch.homeTeamId === MY_TEAM_ID ? nextMatch.awayTeamId : nextMatch.homeTeamId
+      nextMatch.homeTeamId === ui.myTeamId ? nextMatch.awayTeamId : nextMatch.homeTeamId
     ] : null;
     const nextLocation = nextMatch
-      ? (nextMatch.homeTeamId === MY_TEAM_ID ? "🏠" : "✈️")
+      ? (nextMatch.homeTeamId === ui.myTeamId ? "🏠" : "✈️")
       : "";
 
     $topInfo.innerHTML = `
@@ -373,7 +372,7 @@ function renderShell() {
 
   $teamCard.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-      ${teamLogo(MY_TEAM_ID, 32)}
+      ${teamLogo(ui.myTeamId, 32)}
       <div class="name">${my.name}</div>
     </div>
     <div class="meta">Reputação ${my.reputation} · ${my.squad.length} jogadores</div>
@@ -385,13 +384,13 @@ function renderShell() {
       ? `<span style="margin-left:auto;background:var(--danger);color:#fff;font-size:10px;padding:1px 7px;border-radius:8px;font-weight:700">${unread}</span>`
       : "";
     return `
-      <button class="nav-btn ${view === v.id ? "active" : ""}" data-view="${v.id}" style="display:flex;align-items:center;gap:12px">
+      <button class="nav-btn ${ui.view === v.id ? "active" : ""}" data-view="${v.id}" style="display:flex;align-items:center;gap:12px">
         <span class="icon">${v.icon}</span>${v.label}${badge}
       </button>
     `;
   }).join("");
   $nav.querySelectorAll("[data-view]").forEach(btn => {
-    btn.onclick = () => { view = btn.dataset.view; render(); };
+    btn.onclick = () => { ui.view = btn.dataset.view; render(); };
   });
 
   // Botão durante a pré-temporada (estaduais)
@@ -401,10 +400,10 @@ function renderShell() {
     const eRound = state.estadualRound || 1;
     if (userEst) {
       const mm = getEstadualMatchesForRound(state, userEst, eRound)
-        .find(m => !m.match.played && (m.match.homeTeamId === MY_TEAM_ID || m.match.awayTeamId === MY_TEAM_ID));
+        .find(m => !m.match.played && (m.match.homeTeamId === ui.myTeamId || m.match.awayTeamId === ui.myTeamId));
       if (mm) {
-        const oppId = mm.match.homeTeamId === MY_TEAM_ID ? mm.match.awayTeamId : mm.match.homeTeamId;
-        const local = mm.match.homeTeamId === MY_TEAM_ID ? "🏠" : "✈️";
+        const oppId = mm.match.homeTeamId === ui.myTeamId ? mm.match.awayTeamId : mm.match.homeTeamId;
+        const local = mm.match.homeTeamId === ui.myTeamId ? "🏠" : "✈️";
         const kindLabel = mm.kind === "group" ? "Estadual" : mm.kind === "semi" ? "SEMI" : "FINAL";
         $btnPlay.textContent = `🏟️ ${kindLabel} · ${local} vs ${state.teams[oppId].shortName}`;
       } else {
@@ -428,11 +427,11 @@ function renderShell() {
   {
     const next = findNextUserCommitment(round);
     if (next) {
-      const oppId = next.match.homeTeamId === MY_TEAM_ID
+      const oppId = next.match.homeTeamId === ui.myTeamId
         ? next.match.awayTeamId
         : next.match.homeTeamId;
       const oppShort = state.teams[oppId]?.shortName ?? "?";
-      const local = next.match.homeTeamId === MY_TEAM_ID ? "🏠" : "✈️";
+      const local = next.match.homeTeamId === ui.myTeamId ? "🏠" : "✈️";
       const prefix = next.isCup ? "🏆 COPA" : `▶ RODADA ${round}`;
       $btnPlay.textContent = `${prefix} · ${local} vs ${oppShort}`;
     } else {
@@ -462,20 +461,20 @@ function injectResetButton() {
 
 function render() {
   renderShell();
-  if (view === "lineup")    $main.innerHTML = renderLineup();
-  if (view === "standings") $main.innerHTML = renderStandings();
-  if (view === "cup")       $main.innerHTML = renderCup();
-  if (view === "calendar")  $main.innerHTML = renderCalendar();
-  if (view === "market")    $main.innerHTML = renderMarket();
-  if (view === "academy")   $main.innerHTML = renderAcademy();
-  if (view === "finance")   $main.innerHTML = renderFinance();
-  if (view === "inbox")     $main.innerHTML = renderInbox();
+  if (ui.view === "lineup")    $main.innerHTML = renderLineup();
+  if (ui.view === "standings") $main.innerHTML = renderStandings();
+  if (ui.view === "cup")       $main.innerHTML = renderCup();
+  if (ui.view === "calendar")  $main.innerHTML = renderCalendar();
+  if (ui.view === "market")    $main.innerHTML = renderMarket();
+  if (ui.view === "academy")   $main.innerHTML = renderAcademy();
+  if (ui.view === "finance")   $main.innerHTML = renderFinance();
+  if (ui.view === "inbox")     $main.innerHTML = renderInbox();
   wireView();
 }
 
 // -------------------- View: Escalação --------------------
 function renderLineup() {
-  const team = state.teams[MY_TEAM_ID];
+  const team = state.teams[ui.myTeamId];
   const lineup = new Set(team.lineup);
   const squad = team.squad
     .map(pid => state.players[pid])
@@ -586,14 +585,14 @@ function renderStandings() {
     return renderEstaduais();
   }
   // Branch especial pra Série C (multi-fase)
-  if ((standingsView || "").startsWith("brasileirao_c")) {
+  if ((ui.standingsView || "").startsWith("brasileirao_c")) {
     return renderStandingsSerieC();
   }
-  const comp = state.competitions[standingsView];
+  const comp = state.competitions[ui.standingsView];
   const sorted = sortStandings(comp, state.teams);
   const round = getCurrentRound(comp);
   const total = Math.max(...comp.fixtures.map(m => m.round));
-  const isMy = standingsView === MY_COMP_ID;
+  const isMy = ui.standingsView === ui.myCompId;
 
   return `
     <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px">
@@ -602,9 +601,9 @@ function renderStandings() {
         <div class="view-sub" style="margin-bottom:0">Rodada ${round ?? total} de ${total}${isMy ? "" : " · acompanhando"}</div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
-        <button class="btn-toggle ${standingsView === "brasileirao_a" ? "on" : ""}" data-comp="brasileirao_a">Série A</button>
-        <button class="btn-toggle ${standingsView === "brasileirao_b" ? "on" : ""}" data-comp="brasileirao_b">Série B</button>
-        <button class="btn-toggle ${(standingsView || "").startsWith("brasileirao_c") ? "on" : ""}" data-comp="brasileirao_c_p1">Série C</button>
+        <button class="btn-toggle ${ui.standingsView === "brasileirao_a" ? "on" : ""}" data-comp="brasileirao_a">Série A</button>
+        <button class="btn-toggle ${ui.standingsView === "brasileirao_b" ? "on" : ""}" data-comp="brasileirao_b">Série B</button>
+        <button class="btn-toggle ${(ui.standingsView || "").startsWith("brasileirao_c") ? "on" : ""}" data-comp="brasileirao_c_p1">Série C</button>
       </div>
     </div>
 
@@ -615,7 +614,7 @@ function renderStandings() {
           <thead><tr><th>#</th><th>Time</th><th>P</th><th>J</th><th>V</th><th>E</th><th>D</th><th>GP</th><th>GC</th><th>SG</th></tr></thead>
           <tbody>
             ${sorted.map((s, i) => `
-              <tr class="${s.teamId === MY_TEAM_ID ? "highlight" : ""}">
+              <tr class="${s.teamId === ui.myTeamId ? "highlight" : ""}">
                 <td>${i + 1}</td>
                 <td><span style="margin-right:8px">${teamLogo(s.teamId, 20)}</span><b>${state.teams[s.teamId].name}</b></td>
                 <td><b style="color:var(--accent)">${s.points}</b></td>
@@ -647,7 +646,7 @@ function renderStandings() {
     </div>
 
     <div class="card">
-      <h3>Próximos Jogos do ${state.teams[MY_TEAM_ID].shortName}</h3>
+      <h3>Próximos Jogos do ${state.teams[ui.myTeamId].shortName}</h3>
       ${renderUpcoming()}
     </div>
   `;
@@ -655,7 +654,7 @@ function renderStandings() {
 
 function renderEstaduais() {
   const estaduais = state.estaduais || {};
-  const userTeam = state.teams[MY_TEAM_ID];
+  const userTeam = state.teams[ui.myTeamId];
   const userUf = userTeam?.state;
   // Ordena: estadual do usuário primeiro
   const ufs = Object.keys(estaduais).sort((a, b) =>
@@ -736,7 +735,7 @@ function renderEstadualBracketTie(tie) {
   const home = state.teams[tie.homeTeamId];
   const away = state.teams[tie.awayTeamId];
   if (!home || !away) return `<div class="bracket-tie pending">a definir</div>`;
-  const isMine = tie.homeTeamId === MY_TEAM_ID || tie.awayTeamId === MY_TEAM_ID;
+  const isMine = tie.homeTeamId === ui.myTeamId || tie.awayTeamId === ui.myTeamId;
   const played = tie.leg?.played;
   const hWon = tie.winnerId === tie.homeTeamId;
   const aWon = tie.winnerId === tie.awayTeamId;
@@ -767,8 +766,8 @@ function renderStandingsSerieC() {
 
   const seriesCButtonsHTML = `
     <div style="display:flex;gap:6px;flex-wrap:wrap">
-      <button class="btn-toggle ${standingsView === "brasileirao_a" ? "on" : ""}" data-comp="brasileirao_a">Série A</button>
-      <button class="btn-toggle ${standingsView === "brasileirao_b" ? "on" : ""}" data-comp="brasileirao_b">Série B</button>
+      <button class="btn-toggle ${ui.standingsView === "brasileirao_a" ? "on" : ""}" data-comp="brasileirao_a">Série A</button>
+      <button class="btn-toggle ${ui.standingsView === "brasileirao_b" ? "on" : ""}" data-comp="brasileirao_b">Série B</button>
       <button class="btn-toggle on" data-comp="brasileirao_c_p1">Série C</button>
     </div>
   `;
@@ -839,7 +838,7 @@ function renderStandingsTable(comp, { highlightSlots = [] } = {}) {
         ${sorted.map((s, i) => {
           const pos = i + 1;
           let rowStyle = "";
-          if (s.teamId === MY_TEAM_ID) rowStyle = ' class="highlight"';
+          if (s.teamId === ui.myTeamId) rowStyle = ' class="highlight"';
           else if (highlightSlots[0] && pos <= highlightSlots[0]) rowStyle = ' style="background:rgba(var(--accent-rgb),0.04)"';
           else if (highlightSlots[1] && pos >= sorted.length - 1 && highlightSlots[1] >= sorted.length - 1) rowStyle = ' style="background:rgba(239,68,68,0.06)"';
           return `
@@ -890,9 +889,9 @@ function renderSerieCFinal(fn, meta) {
 }
 
 function renderUpcoming() {
-  const comp = state.competitions[MY_COMP_ID];
+  const comp = state.competitions[ui.myCompId];
   const next = comp.fixtures.filter(m => !m.played &&
-    (m.homeTeamId === MY_TEAM_ID || m.awayTeamId === MY_TEAM_ID)).slice(0, 3);
+    (m.homeTeamId === ui.myTeamId || m.awayTeamId === ui.myTeamId)).slice(0, 3);
   if (!next.length) return `<p style="color:var(--muted)">—</p>`;
   return `
     <table>
@@ -904,7 +903,7 @@ function renderUpcoming() {
             <td>${state.teams[m.homeTeamId].name}</td>
             <td style="color:var(--muted)">vs</td>
             <td>${state.teams[m.awayTeamId].name}</td>
-            <td style="color:var(--muted)">${m.homeTeamId === MY_TEAM_ID ? "🏠 Casa" : "✈️ Fora"}</td>
+            <td style="color:var(--muted)">${m.homeTeamId === ui.myTeamId ? "🏠 Casa" : "✈️ Fora"}</td>
           </tr>
         `).join("")}
       </tbody>
@@ -914,9 +913,9 @@ function renderUpcoming() {
 
 // -------------------- View: Mercado --------------------
 function renderMarket() {
-  const my = state.teams[MY_TEAM_ID];
+  const my = state.teams[ui.myTeamId];
   const free = listFreeAgents(state).sort((a, b) => b.overall - a.overall).slice(0, 12);
-  const market = listMarket(state, MY_TEAM_ID).sort((a, b) => b.overall - a.overall).slice(0, 12);
+  const market = listMarket(state, ui.myTeamId).sort((a, b) => b.overall - a.overall).slice(0, 12);
 
   const pendingOffers = listIncomingOffers(state);
   const pendingRequests = listTransferRequests(state);
@@ -1072,7 +1071,7 @@ function renderIncomingOffersCard(offers) {
 }
 
 function getCurrentRoundSafe() {
-  return getCurrentRound(state.competitions[MY_COMP_ID]) ?? 0;
+  return getCurrentRound(state.competitions[ui.myCompId]) ?? 0;
 }
 
 function renderPlayerTable(players, kind, disabled = false) {
@@ -1099,577 +1098,19 @@ function renderPlayerTable(players, kind, disabled = false) {
   `;
 }
 
-// -------------------- View: Base (Academia) --------------------
-function renderAcademy() {
-  const team = state.teams[MY_TEAM_ID];
-  const academy = ensureAcademy(team);
-  const prospects = academy.prospects.map(pid => state.players[pid]).filter(Boolean)
-    .sort((a, b) => b.potential - a.potential);
 
-  // Faixa de geração esperada pela reputação do clube
-  const rep = team.reputation;
-  const expectedRange =
-    rep >= 90 ? "4 a 5"  :
-    rep >= 80 ? "3 a 4"  :
-    rep >= 70 ? "2 a 3"  :
-    rep >= 60 ? "1 a 3"  :
-                "1 a 2";
 
-  return `
-    <div class="view-title">Categoria de Base</div>
-    <div class="view-sub">
-      Slots: <b>${prospects.length}/${MAX_ACADEMY_SLOTS}</b>
-      · A cada temporada o ${team.shortName} (rep ${rep}) promove <b>${expectedRange}</b> jovens
-      ${prospects.length >= MAX_ACADEMY_SLOTS ? " · ⚠️ Base cheia — prospectos novos serão perdidos sem vaga!" : ""}
-    </div>
-
-    <div class="card">
-      <h3>Prospectos da Base do ${team.name}</h3>
-      <p style="font-size:11px;color:var(--muted);margin-bottom:12px">
-        Jogadores de 14-17 anos. Aos 19 são automaticamente liberados se não forem promovidos.
-        Promova ao elenco, venda (50% do valor de mercado) ou libere.
-      </p>
-      ${prospects.length === 0 ? `
-        <p style="color:var(--muted);font-size:13px;padding:14px 0">
-          Nenhum prospecto no momento. A próxima leva chega no início da próxima temporada.
-        </p>
-      ` : `
-        <table>
-          <thead>
-            <tr>
-              <th>Nome</th><th>Pos</th><th>Idade</th><th>OVR</th><th>POT</th>
-              <th>Traits</th><th>Valor (50%)</th><th>Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${prospects.map(p => {
-              const sellPrice = Math.max(50_000, Math.round(p.marketValue * 0.5));
-              const traitsHtml = (p.traits || []).slice(0, 2).map(t => `<span class="trait-chip ${
-                t === "promessa" || t === "finalizador" || t === "lider_nato" || t === "tecnico" || t === "veloz" || t === "cabeceador" ? "positive" :
-                t === "lesoes_frequentes" || t === "inconsistente" || t === "pe_de_obra" ? "negative" : ""
-              }">${t}</span>`).join("") || "—";
-              return `
-                <tr>
-                  <td><b data-player="${p.id}">${p.name}</b></td>
-                  <td><span class="badge badge-pos">${p.position}</span></td>
-                  <td>${p.age}</td>
-                  <td><span class="badge badge-ovr ${ovrClass(p.overall)}">${p.overall}</span></td>
-                  <td><b style="color:var(--accent-2)">${p.potential}</b></td>
-                  <td style="font-size:11px">${traitsHtml}</td>
-                  <td>R$ ${fmt(sellPrice)}</td>
-                  <td>
-                    <button class="btn btn-sm" data-academy="promote" data-pid="${p.id}">Promover</button>
-                    <button class="btn btn-sm btn-secondary" data-academy="sell" data-pid="${p.id}">Vender</button>
-                    <button class="btn btn-sm btn-secondary" data-academy="release" data-pid="${p.id}" style="color:var(--danger)">Liberar</button>
-                  </td>
-                </tr>
-              `;
-            }).join("")}
-          </tbody>
-        </table>
-      `}
-    </div>
-  `;
-}
-
-// -------------------- View: Finanças --------------------
-function renderFinance() {
-  const my = state.teams[MY_TEAM_ID];
-  const monthlyWages = my.squad.reduce((s, pid) => s + (state.players[pid]?.contract.salary ?? 0), 0);
-  const weeklyWages = Math.round(monthlyWages / 4);
-  const weeklyIncome = Math.round(my.finances.monthlyIncome / 4);
-  const net = weeklyIncome - weeklyWages - 120_000;
-
-  return `
-    <div class="view-title">Finanças</div>
-    <div class="view-sub">${my.name}</div>
-
-    <div class="grid-2">
-      <div class="card">
-        <h3>Resumo</h3>
-        <table>
-          <tbody>
-            <tr><td>Caixa</td><td style="text-align:right"><b style="color:var(--accent)">R$ ${fmt(my.finances.balance)}</b></td></tr>
-            <tr><td>Dívida</td><td style="text-align:right">${my.finances.debt > 0 ? `<b style="color:var(--danger)">R$ ${fmt(my.finances.debt)}</b>` : "R$ 0"}</td></tr>
-            <tr><td>Receita semanal</td><td style="text-align:right;color:var(--accent)">+ R$ ${fmt(weeklyIncome)}</td></tr>
-            <tr><td>Folha semanal</td><td style="text-align:right;color:var(--danger)">- R$ ${fmt(weeklyWages)}</td></tr>
-            <tr><td>Estrutura semanal</td><td style="text-align:right;color:var(--danger)">- R$ 120.000</td></tr>
-            <tr style="border-top:1px solid var(--border)">
-              <td><b>Saldo líquido</b></td>
-              <td style="text-align:right"><b style="color:${net >= 0 ? "var(--accent)" : "var(--danger)"}">${net >= 0 ? "+" : ""} R$ ${fmt(net)}</b></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="card">
-        <h3>Histórico</h3>
-        <div class="event-log">
-          ${state.log.slice(-20).reverse().map(l => `<div>${l}</div>`).join("") || "<i>Sem eventos.</i>"}
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-// -------------------- View: Copa do Brasil --------------------
-function renderCup() {
-  const cup = state.competitions.copa_brasil;
-  if (!cup) return `<div class="card">Copa não disponível.</div>`;
-
-  const myParticipating = cup.teams.includes(MY_TEAM_ID);
-  const myTie = findMyCurrentTie(cup);
-
-  return `
-    <div class="view-title">🏆 ${cup.name} · ${cup.season}</div>
-    <div class="view-sub">
-      ${cup.champion
-        ? `Campeão: <b style="color:var(--accent)">${state.teams[cup.champion].name}</b>`
-        : myParticipating
-          ? (myTie ? `Sua próxima fase: ${CUP_PHASE_META[myTie.phase].name}` : "Aguardando próximo sorteio")
-          : "Você não está participando desta edição"}
-    </div>
-
-    ${cup.libertaEntrants?.length ? `
-      <div class="card" style="padding:14px 18px;margin-bottom:14px">
-        <div style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">
-          Cabeças (entram nas Oitavas)
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          ${cup.libertaEntrants.map(id => {
-            const t = state.teams[id];
-            const isMe = id === MY_TEAM_ID;
-            return `<span style="background:${isMe ? "rgba(var(--accent-rgb),0.15)" : "var(--bg-2)"};border:1px solid ${isMe ? "var(--accent)" : "var(--border)"};padding:4px 10px;border-radius:6px;font-size:12px">
-              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${t.colors.primary};margin-right:6px;vertical-align:middle"></span>${t.name}
-            </span>`;
-          }).join("")}
-        </div>
-      </div>
-    ` : ""}
-
-    ${renderCupEarlyPhases(cup)}
-
-    ${renderCupBracket(cup)}
-  `;
-}
-
-// Fases preliminares (1ª, 2ª, 3ª) — formato compacto/lista
-function renderCupEarlyPhases(cup) {
-  const early = ["fase1", "fase2", "fase3"];
-  return early.map(phaseKey => renderCupPhase(cup, phaseKey)).join("");
-}
-
-// Bracket das fases mata-mata (oitavas → final) em 4 colunas
-function renderCupBracket(cup) {
-  const knockoutPhases = ["oitavas", "quartas", "semi", "final"];
-  return `
-    <div class="card" style="padding:18px 22px">
-      <h3>Chaveamento</h3>
-      <div class="bracket">
-        ${knockoutPhases.map(phaseKey => {
-          const phase = cup.phases[phaseKey];
-          const meta = CUP_PHASE_META[phaseKey];
-          const targetSlots = meta.slotsOut * 2 / (phaseKey === "final" ? 2 : 1); // entrada
-          const slots = [];
-          for (let i = 0; i < (meta.slotsIn / 2); i++) {
-            slots.push(phase?.ties?.[i] || null);
-          }
-          return `
-            <div class="bracket-col">
-              <div class="bracket-col-title">${meta.name}</div>
-              <div class="bracket-col-body">
-                ${slots.map(tie => tie ? renderBracketTie(tie, phaseKey) : `<div class="bracket-tie pending">aguardando</div>`).join("")}
-              </div>
-            </div>
-          `;
-        }).join("")}
-      </div>
-      ${cup.champion ? `
-        <div class="bracket-champion">
-          🏆 Campeão: ${state.teams[cup.champion].name}
-        </div>
-      ` : ""}
-    </div>
-  `;
-}
-
-function renderBracketTie(tie, phaseKey) {
-  const teamA = state.teams[tie.teamAId];
-  const teamB = state.teams[tie.teamBId];
-  if (!teamA || !teamB) return `<div class="bracket-tie pending">a definir</div>`;
-  const isMine = tie.teamAId === MY_TEAM_ID || tie.teamBId === MY_TEAM_ID;
-  const aWon = tie.winnerId === tie.teamAId;
-  const bWon = tie.winnerId === tie.teamBId;
-
-  // Placar por jogo (mostra leg1·leg2 + agregado, ou só agregado se 1 leg)
-  let scoreCellA = "—", scoreCellB = "—";
-
-  if (tie.legs.length === 1) {
-    const leg = tie.legs[0];
-    if (leg.played) {
-      const a = leg.homeTeamId === tie.teamAId ? leg.score.home : leg.score.away;
-      const b = leg.homeTeamId === tie.teamBId ? leg.score.home : leg.score.away;
-      scoreCellA = String(a);
-      scoreCellB = String(b);
-    }
-  } else if (tie.legs.length === 2) {
-    const [leg1, leg2] = tie.legs;
-    const a1 = leg1.played ? (leg1.homeTeamId === tie.teamAId ? leg1.score.home : leg1.score.away) : "-";
-    const b1 = leg1.played ? (leg1.homeTeamId === tie.teamBId ? leg1.score.home : leg1.score.away) : "-";
-    const a2 = leg2.played ? (leg2.homeTeamId === tie.teamAId ? leg2.score.home : leg2.score.away) : "-";
-    const b2 = leg2.played ? (leg2.homeTeamId === tie.teamBId ? leg2.score.home : leg2.score.away) : "-";
-    const aggA = tie.aggregate?.teamA;
-    const aggB = tie.aggregate?.teamB;
-    scoreCellA = leg1.played || leg2.played
-      ? `<span style="color:var(--muted);font-size:9px">${a1}·${a2}</span> <b>${aggA ?? "?"}</b>`
-      : "—";
-    scoreCellB = leg1.played || leg2.played
-      ? `<span style="color:var(--muted);font-size:9px">${b1}·${b2}</span> <b>${aggB ?? "?"}</b>`
-      : "—";
-  }
-
-  // Pênaltis (anexa "(Xp)")
-  const pen = tie.penalties;
-  const penA = pen ? ` <span style="color:var(--warning);font-weight:700;font-size:10px">(${pen.scoreA}p)</span>` : "";
-  const penB = pen ? ` <span style="color:var(--warning);font-weight:700;font-size:10px">(${pen.scoreB}p)</span>` : "";
-
-  return `
-    <div class="bracket-tie ${isMine ? "mine" : ""}" data-match="${tie.legs[0]?.id || ""}">
-      <div class="bracket-row ${aWon ? "winner" : (bWon ? "loser" : "")}">
-        ${teamLogo(teamA.id, 14)}
-        <span class="name" title="${teamA.name}">${teamA.shortName}</span>
-        <span class="score">${scoreCellA}${penA}</span>
-      </div>
-      <div class="bracket-row ${bWon ? "winner" : (aWon ? "loser" : "")}">
-        ${teamLogo(teamB.id, 14)}
-        <span class="name" title="${teamB.name}">${teamB.shortName}</span>
-        <span class="score">${scoreCellB}${penB}</span>
-      </div>
-    </div>
-  `;
-}
-
-function renderCupPhase(cup, phaseKey) {
-  const phase = cup.phases[phaseKey];
-  const meta = CUP_PHASE_META[phaseKey];
-  const isCurrent = !phase.complete && phase.ties.length > 0;
-  const accent = phase.complete ? "var(--border)"
-                : phase.ties.length > 0 ? "var(--accent)"
-                : "var(--accent-2)";
-
-  let body;
-  if (!phase.ties.length) {
-    body = `<p style="color:var(--muted);font-size:12px;margin-top:8px">Aguardando sorteio.</p>`;
-  } else {
-    body = `<div style="display:grid;grid-template-columns:1fr;gap:6px;margin-top:8px">
-      ${phase.ties.map(tie => renderCupTie(tie, meta.legs)).join("")}
-    </div>`;
-  }
-
-  const prizeNote = meta.prize
-    ? `<span style="color:var(--muted);font-size:10px;margin-right:8px">💰 R$ ${fmt(meta.prize)}</span>`
-    : "";
-
-  return `
-    <div class="card" style="padding:14px 18px;margin-bottom:10px;border-left:3px solid ${accent}">
-      <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <h3 style="margin:0;font-size:13px">
-          ${meta.name}
-          ${meta.legs === 2 ? `<span style="color:var(--muted);font-size:11px;font-weight:400;margin-left:6px">ida e volta</span>` : ""}
-          ${isCurrent ? ` <span style="color:var(--accent);font-size:11px;font-weight:600;margin-left:6px">EM ANDAMENTO</span>` : ""}
-        </h3>
-        <div>
-          ${prizeNote}
-          <span style="color:var(--muted);font-size:11px">Rodadas ${cup.schedule[phaseKey].join(" / ")}</span>
-        </div>
-      </div>
-      ${body}
-    </div>
-  `;
-}
-
-function renderCupTie(tie, legs) {
-  const teamA = state.teams[tie.teamAId];
-  const teamB = state.teams[tie.teamBId];
-  const isMine = tie.teamAId === MY_TEAM_ID || tie.teamBId === MY_TEAM_ID;
-  const bg = isMine ? "rgba(var(--accent-rgb),0.06)" : "transparent";
-  const border = isMine ? "1px solid rgba(var(--accent-rgb),0.3)" : "1px solid var(--border)";
-
-  let bodyHtml;
-  if (legs === 1) {
-    const leg = tie.legs[0];
-    bodyHtml = `
-      <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;font-size:13px">
-        <div style="text-align:right">
-          <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${state.teams[leg.homeTeamId].colors.primary};margin-right:6px;vertical-align:middle"></span>
-          ${state.teams[leg.homeTeamId].name}
-        </div>
-        <div style="font-weight:800;min-width:60px;text-align:center;${leg.played ? "" : "color:var(--muted)"}" ${leg.played ? `data-match="${leg.id}" data-cup-match="1"` : ""}>
-          ${leg.played
-            ? `${leg.score.home} × ${leg.score.away}`
-            : `vs <div style="font-size:10px;color:var(--muted);font-weight:400">R${cupRoundOf(leg)}</div>`}
-        </div>
-        <div>
-          ${state.teams[leg.awayTeamId].name}
-          <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${state.teams[leg.awayTeamId].colors.primary};margin-left:6px;vertical-align:middle"></span>
-        </div>
-      </div>
-    `;
-  } else {
-    const [leg1, leg2] = tie.legs;
-    const aggregateText = tie.aggregate
-      ? `Agregado: <b>${tie.aggregate.teamA ?? "?"}–${tie.aggregate.teamB ?? "?"}</b>`
-      : "";
-    bodyHtml = `
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px">
-        ${[leg1, leg2].map((leg, i) => `
-          <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px" ${leg.played ? `data-match="${leg.id}" data-cup-match="1" style="cursor:pointer"` : ""}>
-            <div style="text-align:right;font-size:11px;color:var(--muted)">
-              <div>${state.teams[leg.homeTeamId].shortName}</div>
-            </div>
-            <div style="font-weight:700;text-align:center;min-width:50px;${leg.played ? "" : "color:var(--muted)"}">
-              ${leg.played ? `${leg.score.home}×${leg.score.away}` : `Ida${i === 1 ? "/Volta" : ""}`}
-            </div>
-            <div style="font-size:11px;color:var(--muted)">${state.teams[leg.awayTeamId].shortName}</div>
-          </div>
-        `).join("")}
-      </div>
-      ${tie.winnerId ? `<div style="margin-top:6px;font-size:11px;color:var(--accent)">✓ ${aggregateText} · Avança: <b>${state.teams[tie.winnerId].name}</b></div>` : aggregateText ? `<div style="margin-top:6px;font-size:11px;color:var(--muted)">${aggregateText}</div>` : ""}
-    `;
-  }
-
-  return `
-    <div style="background:${bg};border:${border};border-radius:6px;padding:10px 12px">
-      <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-        <b style="font-size:12px">${teamA.shortName} × ${teamB.shortName}</b>
-        ${tie.winnerId
-          ? `<span style="font-size:11px;color:var(--accent)">→ ${state.teams[tie.winnerId].shortName}</span>`
-          : `<span style="font-size:11px;color:var(--muted)">pendente</span>`}
-      </div>
-      ${bodyHtml}
-    </div>
-  `;
-}
-
-function cupRoundOf(leg) {
-  return leg.round ?? "?";
-}
-
-function findMyCurrentTie(cup) {
-  for (const phaseKey of CUP_PHASE_ORDER) {
-    const phase = cup.phases[phaseKey];
-    for (const tie of phase.ties) {
-      if ((tie.teamAId === MY_TEAM_ID || tie.teamBId === MY_TEAM_ID) && !tie.winnerId) {
-        return tie;
-      }
-    }
-  }
-  return null;
-}
-
-// -------------------- View: Calendário --------------------
-function renderCalendar() {
-  const compId = calendarCompId || MY_COMP_ID;
-  const isSerieC = (compId || "").startsWith("brasileirao_c");
-
-  // Para Série C, agrega fixtures das 3 sub-comps em um só calendário
-  let comp, fixtures, totalRounds, currentRound, compName;
-  if (isSerieC) {
-    fixtures = [];
-    for (const subId of SERIE_C_STAGE_IDS) {
-      const c = state.competitions[subId];
-      if (c) fixtures.push(...c.fixtures);
-    }
-    totalRounds = fixtures.length ? Math.max(...fixtures.map(m => m.round)) : 27;
-    // Próxima rodada não jogada
-    const pending = fixtures.filter(m => !m.played).sort((a, b) => a.round - b.round)[0];
-    currentRound = pending ? pending.round : null;
-    compName = SERIE_C_DISPLAY_NAME;
-    comp = { fixtures, name: compName }; // shim mínimo
-  } else {
-    comp = state.competitions[compId];
-    fixtures = comp.fixtures;
-    totalRounds = Math.max(...fixtures.map(m => m.round));
-    currentRound = getCurrentRound(comp);
-  }
-
-  // Agrupa por rodada
-  const byRound = {};
-  for (const m of fixtures) {
-    (byRound[m.round] = byRound[m.round] || []).push(m);
-  }
-
-  // Filtra se modo "mine"
-  const visibleRounds = Object.entries(byRound).map(([round, matches]) => {
-    if (calendarMode === "mine") {
-      const filtered = matches.filter(m => m.homeTeamId === MY_TEAM_ID || m.awayTeamId === MY_TEAM_ID);
-      return { round: Number(round), matches: filtered };
-    }
-    return { round: Number(round), matches };
-  }).filter(r => r.matches.length > 0)
-    .sort((a, b) => a.round - b.round);
-
-  // Estatísticas resumidas (modo "mine")
-  let mySummary = "";
-  if (calendarMode === "mine") {
-    const myPlayed = fixtures.filter(m => m.played && (m.homeTeamId === MY_TEAM_ID || m.awayTeamId === MY_TEAM_ID));
-    let w = 0, d = 0, l = 0, gf = 0, ga = 0;
-    for (const m of myPlayed) {
-      const isHome = m.homeTeamId === MY_TEAM_ID;
-      const my  = isHome ? m.score.home : m.score.away;
-      const opp = isHome ? m.score.away : m.score.home;
-      gf += my; ga += opp;
-      if (my > opp) w++;
-      else if (my < opp) l++;
-      else d++;
-    }
-    mySummary = `
-      <div style="display:flex;gap:18px;font-size:13px;color:var(--muted);margin-top:6px">
-        <span>${myPlayed.length} jogos</span>
-        <span style="color:var(--accent)">${w}V</span>
-        <span style="color:var(--warning)">${d}E</span>
-        <span style="color:var(--danger)">${l}D</span>
-        <span>${gf} pró · ${ga} contra · saldo ${gf - ga >= 0 ? "+" : ""}${gf - ga}</span>
-      </div>
-    `;
-  }
-
-  return `
-    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px">
-      <div>
-        <div class="view-title" style="margin-bottom:0">Calendário · ${comp.name}</div>
-        <div class="view-sub" style="margin-bottom:0">
-          ${currentRound != null ? `Próxima rodada: ${currentRound}/${totalRounds}` : "Temporada encerrada"}
-        </div>
-        ${mySummary}
-      </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        <button class="btn-toggle ${calendarMode === "mine" ? "on" : ""}" data-cal-mode="mine">Meus Jogos</button>
-        <button class="btn-toggle ${calendarMode === "all" ? "on" : ""}" data-cal-mode="all">Calendário Completo</button>
-        <span style="border-left:1px solid var(--border);height:24px;margin:0 4px"></span>
-        <button class="btn-toggle ${(calendarCompId ?? MY_COMP_ID) === "brasileirao_a" ? "on" : ""}" data-cal-comp="brasileirao_a">Série A</button>
-        <button class="btn-toggle ${(calendarCompId ?? MY_COMP_ID) === "brasileirao_b" ? "on" : ""}" data-cal-comp="brasileirao_b">Série B</button>
-        <button class="btn-toggle ${((calendarCompId ?? MY_COMP_ID) || "").startsWith("brasileirao_c") ? "on" : ""}" data-cal-comp="brasileirao_c_p1">Série C</button>
-      </div>
-    </div>
-
-    ${visibleRounds.map(({ round, matches }) => renderRoundBlock(round, matches, currentRound)).join("")}
-  `;
-}
-
-function renderRoundBlock(round, matches, currentRound) {
-  const isCurrent = round === currentRound;
-  const isPast = matches.every(m => m.played);
-  return `
-    <div class="card" style="padding:14px 18px;margin-bottom:10px;border-left:3px solid ${isCurrent ? "var(--accent)" : isPast ? "var(--border)" : "var(--accent-2)"}" ${isCurrent ? `id="round-current"` : ""}>
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-        <h3 style="margin:0;font-size:13px">
-          Rodada ${round}
-          ${isCurrent ? ` <span style="color:var(--accent);font-size:11px;font-weight:600;margin-left:6px">← PRÓXIMA</span>` : ""}
-        </h3>
-        <span style="font-size:11px;color:var(--muted)">${matches[0].date || "—"}</span>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr;gap:4px">
-        ${matches.map(m => renderMatchRow(m)).join("")}
-      </div>
-    </div>
-  `;
-}
-
-function renderMatchRow(m) {
-  const home = state.teams[m.homeTeamId];
-  const away = state.teams[m.awayTeamId];
-  const isMine = m.homeTeamId === MY_TEAM_ID || m.awayTeamId === MY_TEAM_ID;
-  const bg = isMine ? "rgba(var(--accent-rgb),0.06)" : "transparent";
-  const border = isMine ? "1px solid rgba(var(--accent-rgb),0.3)" : "1px solid transparent";
-  const clickable = m.played;
-  const cursor = clickable ? "pointer" : "default";
-  const hover = clickable
-    ? `onmouseover="this.style.background='${isMine ? "rgba(var(--accent-rgb),0.12)" : "rgba(255,255,255,0.04)"}'" onmouseout="this.style.background='${bg}'"`
-    : "";
-
-  let center;
-  if (m.played) {
-    const homeWon = m.score.home > m.score.away;
-    const awayWon = m.score.away > m.score.home;
-    center = `
-      <div style="font-weight:800;font-size:15px;font-variant-numeric:tabular-nums;min-width:60px;text-align:center">
-        <span style="color:${homeWon ? "var(--accent)" : awayWon ? "var(--muted)" : "var(--text)"}">${m.score.home}</span>
-        <span style="color:var(--muted);margin:0 4px">×</span>
-        <span style="color:${awayWon ? "var(--accent)" : homeWon ? "var(--muted)" : "var(--text)"}">${m.score.away}</span>
-      </div>
-    `;
-  } else {
-    center = `<div style="color:var(--muted);font-size:12px;min-width:60px;text-align:center">vs</div>`;
-  }
-
-  return `
-    <div ${clickable ? `data-match="${m.id}"` : ""} style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;padding:6px 10px;background:${bg};border:${border};border-radius:4px;font-size:13px;cursor:${cursor};transition:background .15s" ${hover}>
-      <div style="text-align:right;font-weight:${isMine && m.homeTeamId === MY_TEAM_ID ? "700" : "500"};${m.played && m.score.home > m.score.away ? "" : "color:var(--muted)"}">
-        ${home.name}
-        <span style="margin-left:8px">${teamLogo(home.id, 20)}</span>
-      </div>
-      ${center}
-      <div style="font-weight:${isMine && m.awayTeamId === MY_TEAM_ID ? "700" : "500"};${m.played && m.score.away > m.score.home ? "" : "color:var(--muted)"}">
-        <span style="margin-right:8px">${teamLogo(away.id, 20)}</span>
-        ${away.name}
-      </div>
-    </div>
-  `;
-}
-
-// -------------------- View: Inbox --------------------
-function renderInbox() {
-  const inbox = (state.inbox || []).slice().reverse(); // mais recentes primeiro
-  const unread = inbox.filter(n => !n.read).length;
-
-  return `
-    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px">
-      <div>
-        <div class="view-title" style="margin-bottom:0">Inbox</div>
-        <div class="view-sub" style="margin-bottom:0">
-          ${inbox.length} ${inbox.length === 1 ? "notícia" : "notícias"} ·
-          ${unread} ${unread === 1 ? "não lida" : "não lidas"}
-        </div>
-      </div>
-      ${unread > 0 ? `<button class="btn btn-sm btn-secondary" id="btn-mark-all">Marcar tudo como lido</button>` : ""}
-    </div>
-
-    ${inbox.length === 0 ? `
-      <div class="card" style="text-align:center;color:var(--muted);padding:40px">
-        Sem notícias por enquanto. Jogue uma rodada e volte aqui.
-      </div>
-    ` : inbox.map(n => renderNewsItem(n)).join("")}
-  `;
-}
-
-function renderNewsItem(n) {
-  const dotColor = n.priority === "high" ? "var(--accent)" : "var(--accent-2)";
-  const opacity = n.read ? "0.55" : "1";
-  const fontWeight = n.read ? "400" : "600";
-  return `
-    <div class="card" data-news="${n.id}" style="cursor:pointer;padding:14px 18px;margin-bottom:8px;opacity:${opacity};border-left:3px solid ${n.read ? "var(--border)" : dotColor}">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:${fontWeight};font-size:14px">${n.subject}</div>
-          <div style="color:var(--muted);font-size:12px;margin-top:4px">${n.body}</div>
-        </div>
-        <div style="color:var(--muted);font-size:11px;white-space:nowrap">${n.date}</div>
-      </div>
-    </div>
-  `;
-}
 
 // -------------------- Wire interações --------------------
 function wireView() {
   $main.querySelector("#btn-auto")?.addEventListener("click", () => {
-    state.teams[MY_TEAM_ID].lineup = autoLineup(state.teams[MY_TEAM_ID]);
+    state.teams[ui.myTeamId].lineup = autoLineup(state.teams[ui.myTeamId]);
     render();
   });
   $main.querySelectorAll("[data-toggle]").forEach(btn => {
     btn.onclick = () => {
       const pid = btn.dataset.toggle;
-      const team = state.teams[MY_TEAM_ID];
+      const team = state.teams[ui.myTeamId];
       const set = new Set(team.lineup);
       if (set.has(pid)) set.delete(pid);
       else if (set.size < 11) set.add(pid);
@@ -1688,17 +1129,17 @@ function wireView() {
   });
   $main.querySelectorAll("[data-unlist]").forEach(btn => {
     btn.onclick = () => {
-      const res = unlistPlayer(state, MY_TEAM_ID, btn.dataset.unlist);
+      const res = unlistPlayer(state, ui.myTeamId, btn.dataset.unlist);
       log((res.ok ? "✅ " : "❌ ") + res.message);
       render();
     };
   });
   $main.querySelectorAll("[data-comp]").forEach(btn => {
-    btn.onclick = () => { standingsView = btn.dataset.comp; render(); };
+    btn.onclick = () => { ui.standingsView = btn.dataset.comp; render(); };
   });
   $main.querySelectorAll("[data-formation]").forEach(btn => {
     btn.onclick = () => {
-      const team = state.teams[MY_TEAM_ID];
+      const team = state.teams[ui.myTeamId];
       team.tactics = team.tactics || {};
       team.tactics.formation = btn.dataset.formation;
       // Re-escala automaticamente para os slots da nova formação
@@ -1708,7 +1149,7 @@ function wireView() {
   });
   $main.querySelectorAll("[data-training]").forEach(btn => {
     btn.onclick = () => {
-      const team = state.teams[MY_TEAM_ID];
+      const team = state.teams[ui.myTeamId];
       team.tactics = team.tactics || {};
       team.tactics.training = btn.dataset.training;
       render();
@@ -1730,10 +1171,10 @@ function wireView() {
   });
 
   $main.querySelectorAll("[data-cal-mode]").forEach(btn => {
-    btn.onclick = () => { calendarMode = btn.dataset.calMode; render(); };
+    btn.onclick = () => { ui.calendarMode = btn.dataset.calMode; render(); };
   });
   $main.querySelectorAll("[data-cal-comp]").forEach(btn => {
-    btn.onclick = () => { calendarCompId = btn.dataset.calComp; render(); };
+    btn.onclick = () => { ui.calendarCompId = btn.dataset.calComp; render(); };
   });
 
   // Ações da aba Base
@@ -1741,7 +1182,7 @@ function wireView() {
     btn.onclick = () => handleAcademyAction(btn.dataset.academy, btn.dataset.pid);
   });
   $main.querySelectorAll("[data-match]").forEach(el => {
-    el.onclick = () => openMatchDetail(el.dataset.match, calendarCompId || MY_COMP_ID);
+    el.onclick = () => openMatchDetail(el.dataset.match, ui.calendarCompId || ui.myCompId);
   });
 
   // Scroll automático até a rodada atual quando entra no calendário
@@ -1814,13 +1255,13 @@ function handleAcademyAction(action, pid) {
   if (!p) return;
   let res;
   if (action === "promote") {
-    res = promoteProspect(state, MY_TEAM_ID, pid);
+    res = promoteProspect(state, ui.myTeamId, pid);
   } else if (action === "sell") {
     if (!confirm(`Vender ${p.name} por R$ ${fmt(Math.max(50_000, Math.round(p.marketValue * 0.5)))}?`)) return;
-    res = sellProspect(state, MY_TEAM_ID, pid);
+    res = sellProspect(state, ui.myTeamId, pid);
   } else if (action === "release") {
     if (!confirm(`Liberar ${p.name} da base? Esta ação não tem retorno.`)) return;
-    res = releaseProspect(state, MY_TEAM_ID, pid);
+    res = releaseProspect(state, ui.myTeamId, pid);
   }
   if (res) log((res.ok ? "🌱 " : "❌ ") + res.message);
   render();
@@ -1847,7 +1288,7 @@ function handleBid(kind, pid) {
     );
     if (!yearsStr) return;
     const res = renewContract(state, {
-      teamId: MY_TEAM_ID, playerId: pid,
+      teamId: ui.myTeamId, playerId: pid,
       salaryOffer: Number(sal), years: Number(yearsStr),
     });
     log((res.accepted ? "✅ " : "❌ ") + res.message);
@@ -1859,7 +1300,7 @@ function handleBid(kind, pid) {
   if (kind === "free") {
     const sal = prompt(`Salário mensal para ${p.name} (esperado ~R$ ${fmt(expSal)}):`, String(expSal));
     if (!sal) return;
-    const res = signFreeAgent(state, { teamId: MY_TEAM_ID, playerId: pid, salaryOffer: Number(sal), currentRound: round });
+    const res = signFreeAgent(state, { teamId: ui.myTeamId, playerId: pid, salaryOffer: Number(sal), currentRound: round });
     log((res.accepted ? "✅ " : "❌ ") + res.message);
   } else {
     const fee = prompt(`Proposta por ${p.name} (valor: R$ ${fmt(p.marketValue)}):`, String(p.marketValue));
@@ -1867,18 +1308,18 @@ function handleBid(kind, pid) {
     const sal = prompt(`Salário oferecido (esperado ~R$ ${fmt(expSal)}):`, String(expSal));
     if (!sal) return;
     const res = makeBid(state, {
-      fromTeamId: MY_TEAM_ID, playerId: pid, fee: Number(fee), salaryOffer: Number(sal), currentRound: round,
+      fromTeamId: ui.myTeamId, playerId: pid, fee: Number(fee), salaryOffer: Number(sal), currentRound: round,
     });
     log((res.accepted ? "✅ " : "❌ ") + res.message);
   }
-  state.teams[MY_TEAM_ID].lineup = state.teams[MY_TEAM_ID].lineup
-    .filter(id => state.teams[MY_TEAM_ID].squad.includes(id));
+  state.teams[ui.myTeamId].lineup = state.teams[ui.myTeamId].lineup
+    .filter(id => state.teams[ui.myTeamId].squad.includes(id));
   render();
 }
 
 // -------------------- Pré-temporada: Estaduais --------------------
 function getUserEstadual() {
-  const team = state.teams[MY_TEAM_ID];
+  const team = state.teams[ui.myTeamId];
   if (!team || !state.estaduais) return null;
   return state.estaduais[team.state] || null;
 }
@@ -1948,7 +1389,7 @@ function playEstadualWeek() {
   let userMatch = null;
   if (userEst) {
     const mm = getEstadualMatchesForRound(state, userEst, round)
-      .find(m => !m.match.played && (m.match.homeTeamId === MY_TEAM_ID || m.match.awayTeamId === MY_TEAM_ID));
+      .find(m => !m.match.played && (m.match.homeTeamId === ui.myTeamId || m.match.awayTeamId === ui.myTeamId));
     if (mm) userMatch = mm;
   }
 
@@ -2002,8 +1443,8 @@ function finalizeEstadualRound(round) {
     }
   }
   const tick = weeklyTick(state, roundResults, "estadual");
-  const myRev = tick.revenues.find(r => r.teamId === MY_TEAM_ID);
-  const myWages = tick.wages.find(w => w.teamId === MY_TEAM_ID);
+  const myRev = tick.revenues.find(r => r.teamId === ui.myTeamId);
+  const myWages = tick.wages.find(w => w.teamId === ui.myTeamId);
   if (myWages) {
     log(`Pré-temporada R${round}${myRev ? ` · bilheteria +R$ ${fmt(myRev.revenue)}` : ""} · folha -R$ ${fmt(myWages.wagesPaid)}.`);
   }
@@ -2040,7 +1481,7 @@ function finishEstadualPhase() {
     state.inbox.push({
       id: `n_estadual_${e.uf}_${state.season}`,
       date: state.currentDate, type: "season",
-      priority: e.champion === MY_TEAM_ID ? "high" : "normal",
+      priority: e.champion === ui.myTeamId ? "high" : "normal",
       subject: `🏆 ${champ.name} é campeão do ${e.name} ${state.season}`,
       body: `${champ.name} conquistou o ${e.name}. Prêmio: R$ 3.000.000.`,
       read: false, teamFocus: e.champion,
@@ -2067,7 +1508,7 @@ function playRound() {
     return;
   }
 
-  const comp = state.competitions[MY_COMP_ID];
+  const comp = state.competitions[ui.myCompId];
   const round = getCurrentRound(comp);
   if (round == null) return;
 
@@ -2087,7 +1528,7 @@ function playRound() {
     const phaseKey = next.match.phase;
     cup.drawsShown = cup.drawsShown || [];
     const myTieInPhase = cup.phases[phaseKey]?.ties?.some(t =>
-      t.teamAId === MY_TEAM_ID || t.teamBId === MY_TEAM_ID
+      t.teamAId === ui.myTeamId || t.teamBId === ui.myTeamId
     );
     if (myTieInPhase && !cup.drawsShown.includes(phaseKey)) {
       cup.drawsShown.push(phaseKey);
@@ -2100,7 +1541,7 @@ function playRound() {
 }
 
 function proceedToMatch(next, round) {
-  const comp = state.competitions[MY_COMP_ID];
+  const comp = state.competitions[ui.myCompId];
   const home = state.teams[next.match.homeTeamId];
   const away = state.teams[next.match.awayTeamId];
   const sim = createMatchSimulator({
@@ -2121,7 +1562,7 @@ function proceedToMatch(next, round) {
     // mostra animação de shootout antes de seguir.
     const cup = state.competitions.copa_brasil;
     const tie = cup?.phases[next.match.phase]?.ties.find(t => t.id === next.match.cupTieId);
-    const userInTie = tie && (tie.teamAId === MY_TEAM_ID || tie.teamBId === MY_TEAM_ID);
+    const userInTie = tie && (tie.teamAId === ui.myTeamId || tie.teamBId === ui.myTeamId);
     if (next.isCup && tie?.penalties && userInTie && !tie.penaltiesShown) {
       tie.penaltiesShown = true;
       showPenaltyShootoutModal(tie, async () => {
@@ -2173,18 +1614,18 @@ function collectParallelMatches(round, excludeMatch) {
 
 // Próximo compromisso do USUÁRIO na rodada atual. Copa antes, liga depois.
 function findNextUserCommitment(round) {
-  const comp = state.competitions[MY_COMP_ID];
+  const comp = state.competitions[ui.myCompId];
   if (!comp) return null;
   const cup = state.competitions.copa_brasil;
 
   if (cup) {
     const myCupLeg = getCupLegsForRound(cup, round)
-      .find(l => !l.played && (l.homeTeamId === MY_TEAM_ID || l.awayTeamId === MY_TEAM_ID));
+      .find(l => !l.played && (l.homeTeamId === ui.myTeamId || l.awayTeamId === ui.myTeamId));
     if (myCupLeg) return { isCup: true, match: myCupLeg };
   }
 
   const myLeagueMatch = getMatchesOfRound(comp, round)
-    .find(m => !m.played && (m.homeTeamId === MY_TEAM_ID || m.awayTeamId === MY_TEAM_ID));
+    .find(m => !m.played && (m.homeTeamId === ui.myTeamId || m.awayTeamId === ui.myTeamId));
   if (myLeagueMatch) return { isCup: false, match: myLeagueMatch };
 
   return null;
@@ -2218,7 +1659,7 @@ function playMatchOnScreen(match, sim, onContinue, parallels = []) {
   const home = state.teams[match.homeTeamId];
   const away = state.teams[match.awayTeamId];
   // Qual lado o usuário controla
-  const userSide = match.homeTeamId === MY_TEAM_ID ? "home" : "away";
+  const userSide = match.homeTeamId === ui.myTeamId ? "home" : "away";
 
   // Cria simuladores das partidas paralelas (todas IA vs IA)
   const parallelSims = parallels.map(p => ({
@@ -2692,7 +2133,7 @@ async function closeWeek(round) {
   // Treinamento semanal — aplica foco escolhido pra cada time
   for (const teamId of Object.keys(state.teams)) {
     const result = applyTraining(state, teamId, rng);
-    if (teamId === MY_TEAM_ID && result) {
+    if (teamId === ui.myTeamId && result) {
       const focusName = TRAINING_FOCI[result.focusKey]?.label || "—";
       if (result.totalGains > 0) {
         log(`🏋️ Treino (${focusName}): ${result.totalGains} ganho${result.totalGains > 1 ? "s" : ""} de atributo em ${result.playerGains.size} jogador${result.playerGains.size > 1 ? "es" : ""}.`);
@@ -2707,7 +2148,7 @@ async function closeWeek(round) {
           date: state.currentDate, type: "highlight", priority: "normal",
           subject: `🏋️ ${result.totalGains} ganhos de atributo no treino de ${focusName}`,
           body: `Sua semana de treino rendeu evolução para ${result.playerGains.size} jogadores. Confira a aba Escalação pra ver quem cresceu.`,
-          read: false, teamFocus: MY_TEAM_ID,
+          read: false, teamFocus: ui.myTeamId,
         });
       }
     }
@@ -2722,7 +2163,7 @@ async function closeWeek(round) {
     for (const phaseKey of CUP_PHASE_ORDER) {
       const result = payPhasePrizes(state, cup, phaseKey);
       if (result) {
-        const myReceived = result.teams.includes(MY_TEAM_ID);
+        const myReceived = result.teams.includes(ui.myTeamId);
         if (myReceived) {
           log(`💰 Cota da Copa (${result.phaseName}): +R$ ${fmt(result.prize)}.`);
         }
@@ -2749,18 +2190,18 @@ async function closeWeek(round) {
   }
 
   // Finanças
-  const tick = weeklyTick(state, allResults, MY_COMP_ID);
-  const myRev = tick.revenues.find(r => r.teamId === MY_TEAM_ID);
-  const myWages = tick.wages.find(w => w.teamId === MY_TEAM_ID);
+  const tick = weeklyTick(state, allResults, ui.myCompId);
+  const myRev = tick.revenues.find(r => r.teamId === ui.myTeamId);
+  const myWages = tick.wages.find(w => w.teamId === ui.myTeamId);
   log(`Rodada ${round} fechada · ${myRev ? `bilheteria +R$ ${fmt(myRev.revenue)} · ` : ""}folha -R$ ${fmt(myWages.wagesPaid)}.`);
 
   // Suspensões + IA de mercado (só durante janela)
   decrementSuspensions(state, allResults.flatMap(r => [r.homeTeamId, r.awayTeamId]));
-  const aiMoves = runAITransfers(state, rng, { excludeTeamId: MY_TEAM_ID, currentRound: round });
+  const aiMoves = runAITransfers(state, rng, { excludeTeamId: ui.myTeamId, currentRound: round });
   for (const m of aiMoves) log(`🔁 ${m.message}`);
 
   // Mercado em duas vias: IA propõe pelos jogadores do usuário (só na janela)
-  const newOffers = generateIncomingOffers(state, rng, MY_TEAM_ID, round);
+  const newOffers = generateIncomingOffers(state, rng, ui.myTeamId, round);
   for (const offer of newOffers) {
     const fromTeam = state.teams[offer.fromTeamId];
     log(`📩 Proposta: ${fromTeam.shortName} oferece R$ ${fmt(offer.fee)} por ${offer.playerName}.`);
@@ -2771,12 +2212,12 @@ async function closeWeek(round) {
       priority: offer.fee >= 30_000_000 ? "high" : "normal",
       subject: `📩 ${fromTeam.name} oferece R$ ${fmt(offer.fee)} por ${offer.playerName}`,
       body: `Salário oferecido: R$ ${fmt(offer.salaryOffer)}/mês. Acesse o Mercado para aceitar, contrapor ou recusar. (Expira em 4 rodadas.)`,
-      read: false, teamFocus: MY_TEAM_ID,
+      read: false, teamFocus: ui.myTeamId,
     });
   }
 
   // Pedidos de transferência (jogadores insatisfeitos pedem pra sair)
-  const newRequests = generateTransferRequests(state, rng, MY_TEAM_ID, round);
+  const newRequests = generateTransferRequests(state, rng, ui.myTeamId, round);
   for (const req of newRequests) {
     const reasonLabel = ({
       very_low_morale: "moral muito baixa",
@@ -2790,7 +2231,7 @@ async function closeWeek(round) {
       date: state.currentDate, type: "transfer", priority: "high",
       subject: `🔻 ${req.playerName} pediu para sair do clube`,
       body: `Motivo: ${reasonLabel}. No Mercado você pode listá-lo pra venda, prometer mais espaço (acalma) ou recusar (perde moral).`,
-      read: false, teamFocus: MY_TEAM_ID,
+      read: false, teamFocus: ui.myTeamId,
     });
   }
 
@@ -2809,7 +2250,7 @@ async function closeWeek(round) {
   }
 
   // Manchetes
-  generateNewsForRound(state, round, allResults, MY_TEAM_ID);
+  generateNewsForRound(state, round, allResults, ui.myTeamId);
 
   validateLineup();
 
@@ -2849,7 +2290,7 @@ function gatherRoundResults(round) {
 }
 
 // Detecta fim de fase da Série C e cria a próxima.
-// Também ajusta MY_COMP_ID se o usuário avançar de fase.
+// Também ajusta ui.myCompId se o usuário avançar de fase.
 function advanceSerieCIfNeeded() {
   const meta = state.serieCMeta;
   if (!meta || meta.currentPhase === "done") return;
@@ -2867,11 +2308,11 @@ function advanceSerieCIfNeeded() {
       meta.relegated = relegated;
       meta.currentPhase = "groups";
 
-      // Se o usuário está na Série C e classificou, atualiza MY_COMP_ID
-      if (MY_COMP_ID === "brasileirao_c_p1") {
-        if (groupA.teams.includes(MY_TEAM_ID)) MY_COMP_ID = "brasileirao_c_ga";
-        else if (groupB.teams.includes(MY_TEAM_ID)) MY_COMP_ID = "brasileirao_c_gb";
-        // Senão: time eliminado, MY_COMP_ID permanece em p1 (sem mais jogos)
+      // Se o usuário está na Série C e classificou, atualiza ui.myCompId
+      if (ui.myCompId === "brasileirao_c_p1") {
+        if (groupA.teams.includes(ui.myTeamId)) ui.myCompId = "brasileirao_c_ga";
+        else if (groupB.teams.includes(ui.myTeamId)) ui.myCompId = "brasileirao_c_gb";
+        // Senão: time eliminado, ui.myCompId permanece em p1 (sem mais jogos)
       }
 
       log(`Série C → Quadrangulares definidos. Grupo A: ${groupA.teams.map(id => state.teams[id].shortName).join(", ")}. Grupo B: ${groupB.teams.map(id => state.teams[id].shortName).join(", ")}.`);
@@ -2889,8 +2330,8 @@ function advanceSerieCIfNeeded() {
       state.competitions.brasileirao_c_final = finalComp;
       meta.currentPhase = "final";
 
-      if ([MY_COMP_ID, "brasileirao_c_ga", "brasileirao_c_gb"].includes(MY_COMP_ID)) {
-        if (finalComp.teams.includes(MY_TEAM_ID)) MY_COMP_ID = "brasileirao_c_final";
+      if ([ui.myCompId, "brasileirao_c_ga", "brasileirao_c_gb"].includes(ui.myCompId)) {
+        if (finalComp.teams.includes(ui.myTeamId)) ui.myCompId = "brasileirao_c_final";
       }
 
       log(`Série C → Final: ${state.teams[finalComp.teamAId].name} × ${state.teams[finalComp.teamBId].name}. Promovidos para a Série B: ${meta.promoted.map(id => state.teams[id].shortName).join(", ")}.`);
@@ -2977,18 +2418,18 @@ async function finalizeRound(round) {
   }
 
   // 3. Finanças
-  const tick = weeklyTick(state, allResults, MY_COMP_ID);
-  const myRev = tick.revenues.find(r => r.teamId === MY_TEAM_ID);
-  const myWages = tick.wages.find(w => w.teamId === MY_TEAM_ID);
+  const tick = weeklyTick(state, allResults, ui.myCompId);
+  const myRev = tick.revenues.find(r => r.teamId === ui.myTeamId);
+  const myWages = tick.wages.find(w => w.teamId === ui.myTeamId);
   log(`Rodada ${round} fechada · ${myRev ? `bilheteria +R$ ${fmt(myRev.revenue)} · ` : ""}folha -R$ ${fmt(myWages.wagesPaid)}.`);
 
   // 4. Suspensões + IA de mercado
   decrementSuspensions(state, allResults.flatMap(r => [r.homeTeamId, r.awayTeamId]));
-  const aiMoves = runAITransfers(state, rng, { excludeTeamId: MY_TEAM_ID });
+  const aiMoves = runAITransfers(state, rng, { excludeTeamId: ui.myTeamId });
   for (const m of aiMoves) log(`🔁 ${m.message}`);
 
   // 5. Manchetes
-  generateNewsForRound(state, round, allResults, MY_TEAM_ID);
+  generateNewsForRound(state, round, allResults, ui.myTeamId);
 
   validateLineup();
 
@@ -3026,18 +2467,18 @@ function showSeasonRecap(report) {
     log(`A↔B: ⬇️ ${relegated} ⬆️ ${promoted}. B↔C: ⬇️ ${relegatedToC} ⬆️ ${promotedFromC}.`);
     log(`👋 ${report.retired.length} aposentadorias · ${report.freeAgents.length} contratos vencidos.`);
 
-    // Atualiza MY_COMP_ID com base na nova divisão do usuário.
+    // Atualiza ui.myCompId com base na nova divisão do usuário.
     // (Importante: as subcomps brasileirao_c_ga/_gb/_final foram deletadas
-    //  em endSeason — sem este reset, MY_COMP_ID pode ficar pendurado.)
+    //  em endSeason — sem este reset, ui.myCompId pode ficar pendurado.)
     const newMyComp = resolveUserCompetition();
     if (newMyComp) {
-      MY_COMP_ID = newMyComp;
-      standingsView = MY_COMP_ID;
+      ui.myCompId = newMyComp;
+      ui.standingsView = ui.myCompId;
     }
 
     // Reescala automaticamente para a próxima temporada
-    if (state.teams[MY_TEAM_ID]) {
-      state.teams[MY_TEAM_ID].lineup = autoLineup(state.teams[MY_TEAM_ID]);
+    if (state.teams[ui.myTeamId]) {
+      state.teams[ui.myTeamId].lineup = autoLineup(state.teams[ui.myTeamId]);
     }
 
     // Recria estaduais e volta pra pré-temporada da nova temporada.
@@ -3049,7 +2490,7 @@ function showSeasonRecap(report) {
     state.seasonPhase = "estadual";
     state.estadualRound = 1;
 
-    const myCompName = state.competitions[MY_COMP_ID]?.name ?? "—";
+    const myCompName = state.competitions[ui.myCompId]?.name ?? "—";
     alert(
       `Fim da temporada ${report.season}!\n\n` +
       `🏆 Série A: ${champA}\n🏆 Série B: ${champB}` +
@@ -3058,24 +2499,24 @@ function showSeasonRecap(report) {
       `Série B → A (promovidos): ${promoted}\n` +
       `Série B → C (rebaixados): ${relegatedToC}\n` +
       `Série C → B (promovidos): ${promotedFromC}\n\n` +
-      `Você dirige o ${state.teams[MY_TEAM_ID]?.name ?? "?"} na temporada ${state.season} (${myCompName}).`
+      `Você dirige o ${state.teams[ui.myTeamId]?.name ?? "?"} na temporada ${state.season} (${myCompName}).`
     );
   } catch (e) {
     console.error("Erro no showSeasonRecap:", e);
-    // Mesmo se algo falhar, garante que MY_COMP_ID seja válido pra UI não travar
+    // Mesmo se algo falhar, garante que ui.myCompId seja válido pra UI não travar
     const fallback = resolveUserCompetition();
-    if (fallback) { MY_COMP_ID = fallback; standingsView = MY_COMP_ID; }
+    if (fallback) { ui.myCompId = fallback; ui.standingsView = ui.myCompId; }
   }
 }
 
 // Descobre em qual competição o time do usuário está participando agora.
 // Retorna o ID da competição válida (ou null se nenhuma).
 function resolveUserCompetition() {
-  if (!MY_TEAM_ID) return null;
+  if (!ui.myTeamId) return null;
   const compsToCheck = ["brasileirao_a", "brasileirao_b", "brasileirao_c_p1"];
   for (const cid of compsToCheck) {
     const c = state.competitions[cid];
-    if (c?.teams?.includes(MY_TEAM_ID)) return cid;
+    if (c?.teams?.includes(ui.myTeamId)) return cid;
   }
   return null;
 }
@@ -3127,15 +2568,15 @@ function findNextMatch() {
     if (!userEst) return null;
     for (let r = (state.estadualRound || 1); r <= estadualTotalRounds(userEst); r++) {
       const mm = getEstadualMatchesForRound(state, userEst, r)
-        .find(m => !m.match.played && (m.match.homeTeamId === MY_TEAM_ID || m.match.awayTeamId === MY_TEAM_ID));
+        .find(m => !m.match.played && (m.match.homeTeamId === ui.myTeamId || m.match.awayTeamId === ui.myTeamId));
       if (mm) return mm.match;
     }
     return null;
   }
-  const comp = state.competitions[MY_COMP_ID];
+  const comp = state.competitions[ui.myCompId];
   if (!comp) return null;
   return comp.fixtures.find(m =>
-    !m.played && (m.homeTeamId === MY_TEAM_ID || m.awayTeamId === MY_TEAM_ID)
+    !m.played && (m.homeTeamId === ui.myTeamId || m.awayTeamId === ui.myTeamId)
   );
 }
 
@@ -3146,9 +2587,9 @@ function renderNextMatchCard() {
       <p style="color:var(--muted)">Não há partidas pendentes nesta competição.</p></div>`;
   }
 
-  const isHome = match.homeTeamId === MY_TEAM_ID;
+  const isHome = match.homeTeamId === ui.myTeamId;
   const opp = state.teams[isHome ? match.awayTeamId : match.homeTeamId];
-  const my = state.teams[MY_TEAM_ID];
+  const my = state.teams[ui.myTeamId];
 
   // Scout: força média do XI provável do adversário (top 11 por overall, descartando lesionados)
   const oppXI = scoutBestXI(opp);
@@ -3188,7 +2629,7 @@ function renderNextMatchCard() {
         <div style="text-align:right">
           <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-bottom:2px">
             <div style="font-weight:700;font-size:16px">${my.name}</div>
-            ${teamLogo(MY_TEAM_ID, 40)}
+            ${teamLogo(ui.myTeamId, 40)}
           </div>
           <div style="font-size:12px;color:var(--muted)">você · ${my.tactics?.formation || "4-3-3"}</div>
           <div style="margin-top:6px;font-size:11px;color:var(--muted)">Força · Forma · Moral</div>
@@ -3286,7 +2727,7 @@ function autoLineup(team) {
 }
 
 function validateLineup() {
-  const team = state.teams[MY_TEAM_ID];
+  const team = state.teams[ui.myTeamId];
   team.lineup = team.lineup.filter(pid => {
     const p = state.players[pid];
     return p && !p.status.injury && p.status.suspendedMatches === 0;
@@ -3307,4 +2748,4 @@ function groupCount(players) {
 // fmt, ovrClass, pct, teamLogo  → src/ui/format.js
 // applyTeamTheme + helpers de cor → src/ui/theme.js
 
-function log(msg) { state.log.push(`[R${getCurrentRound(state.competitions[MY_COMP_ID]) ?? "fim"}] ${msg}`); }
+function log(msg) { state.log.push(`[R${getCurrentRound(state.competitions[ui.myCompId]) ?? "fim"}] ${msg}`); }
