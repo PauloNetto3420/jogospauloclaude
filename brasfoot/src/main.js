@@ -44,7 +44,9 @@ import {
 } from "./engine/estadual.js";
 import { saveGame, loadGame, listSaves, deleteSave } from "./db.js";
 import { SERIE_A_SEED, SERIE_B_SEED, SERIE_C_SEED } from "../data/teams.seed.js";
-import { TEAM_LOGOS } from "../data/team-logos.js";
+import { state, rng, setState, setRng } from "./core/store.js";
+import { fmt, ovrClass, pct, teamLogo } from "./ui/format.js";
+import { applyTeamTheme } from "./ui/theme.js";
 
 // -------------------- Constantes --------------------
 const POS_GROUP = {
@@ -75,9 +77,8 @@ const VIEWS = [
 let calendarMode = "mine"; // "mine" | "all"
 let calendarCompId = null;  // se null usa MY_COMP_ID
 
-// -------------------- Estado global --------------------
-let state = null;
-let rng = null;
+// -------------------- Estado de UI local --------------------
+// (state e rng vêm do core/store.js via live-binding; reatribuídos por setState/setRng)
 let view = "lineup";
 let MY_TEAM_ID = null;
 let MY_COMP_ID = null;          // qual campeonato o usuário disputa
@@ -143,7 +144,7 @@ function renderBootScreen(save) {
 }
 
 function loadIntoState(save) {
-  state = save;
+  setState(save);
   MY_TEAM_ID = save.managedTeamId;
   MY_COMP_ID = SERIE_A_SEED.some(t => t.id === MY_TEAM_ID) ? "brasileirao_a" : "brasileirao_b";
   // Após mudança de divisão por rebaixamento/acesso, recalcula
@@ -152,7 +153,7 @@ function loadIntoState(save) {
       .find(cid => state.competitions[cid].teams.includes(MY_TEAM_ID)) ?? MY_COMP_ID;
   }
   standingsView = MY_COMP_ID;
-  rng = createRng(state.settings?.seed ?? Date.now());
+  setRng(createRng(state.settings?.seed ?? Date.now()));
   syncPlayerIdCounter(state.players);
 
   applyTeamTheme(state.teams[MY_TEAM_ID].colors);
@@ -229,9 +230,9 @@ async function startGame(teamId) {
   else MY_COMP_ID = "brasileirao_c_p1"; // Série C começa na 1ª Fase
   standingsView = MY_COMP_ID;
   const seed = Date.now() & 0xffffffff;
-  rng = createRng(seed);
+  setRng(createRng(seed));
 
-  state = {
+  setState({
     saveId: `save_${Date.now()}`,
     season: 2026,
     currentDate: "2026-04-01",
@@ -244,7 +245,7 @@ async function startGame(teamId) {
     estadualRound: 1,
     estaduais: null,
     settings: { difficulty: "normal", language: "pt-BR", seed },
-  };
+  });
 
   // Cria todos os 60 times (Série A + B + C) e seus elencos
   for (const seed of [...SERIE_A_SEED, ...SERIE_B_SEED, ...SERIE_C_SEED]) {
@@ -3995,89 +3996,7 @@ function groupCount(players) {
   return out;
 }
 
-function ovrClass(ovr) { return ovr >= 80 ? "" : ovr >= 70 ? "mid" : "low"; }
-function fmt(n) { return Math.round(n).toLocaleString("pt-BR"); }
+// fmt, ovrClass, pct, teamLogo  → src/ui/format.js
+// applyTeamTheme + helpers de cor → src/ui/theme.js
 
-// -------------------- Tema dinâmico por time --------------------
-// Substitui as variáveis CSS --accent e --accent-2 (e seus equivalentes RGB)
-// pela cor primária/secundária do time gerenciado. Cores muito escuras são
-// clareadas para garantir contraste com o texto preto dos botões.
-function applyTeamTheme(teamColors) {
-  const root = document.documentElement;
-  if (!teamColors) {
-    // Reset para padrão (verde)
-    root.style.setProperty("--accent",       "#00d97e");
-    root.style.setProperty("--accent-2",     "#0ea5e9");
-    root.style.setProperty("--accent-rgb",   "0, 217, 126");
-    root.style.setProperty("--accent-2-rgb", "14, 165, 233");
-    return;
-  }
-  const accent  = ensureBright(teamColors.primary, 0.35);
-  const accent2 = ensureBright(teamColors.secondary, 0.35);
-  root.style.setProperty("--accent",       accent);
-  root.style.setProperty("--accent-2",     accent2);
-  root.style.setProperty("--accent-rgb",   hexToRgbStr(accent));
-  root.style.setProperty("--accent-2-rgb", hexToRgbStr(accent2));
-}
-
-function luminance(hex) {
-  const { r, g, b } = parseHex(hex);
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-}
-
-function lighten(hex, amount) {
-  let { r, g, b } = parseHex(hex);
-  r = Math.round(r + (255 - r) * amount);
-  g = Math.round(g + (255 - g) * amount);
-  b = Math.round(b + (255 - b) * amount);
-  return "#" + [r, g, b].map(x => x.toString(16).padStart(2, "0")).join("");
-}
-
-function parseHex(hex) {
-  hex = (hex || "#888888").replace("#", "");
-  return {
-    r: parseInt(hex.substr(0, 2), 16),
-    g: parseInt(hex.substr(2, 2), 16),
-    b: parseInt(hex.substr(4, 2), 16),
-  };
-}
-
-function hexToRgbStr(hex) {
-  const { r, g, b } = parseHex(hex);
-  return `${r}, ${g}, ${b}`;
-}
-
-// Clareia iterativamente até atingir luminância mínima (garante contraste).
-function ensureBright(hex, minLum) {
-  let cur = hex || "#888888";
-  let lum = luminance(cur);
-  let iterations = 0;
-  while (lum < minLum && iterations < 8) {
-    const next = lighten(cur, 0.3);
-    const nextLum = luminance(next);
-    if (nextLum <= lum) break;
-    cur = next;
-    lum = nextLum;
-    iterations++;
-  }
-  return cur;
-}
-
-// Renderiza o escudo do time. Aceita seed (objeto com colors) ou usa state.teams.
-// Se não há logo cadastrado, cai pra bolinha colorida.
-function teamLogo(teamId, size = 24, teamObj = null) {
-  const path = TEAM_LOGOS[teamId];
-  const team = teamObj || state?.teams?.[teamId];
-  const color = team?.colors?.primary ?? "#888";
-  if (path) {
-    return `<img src="${path}" alt="${team?.shortName ?? teamId}"
-              style="width:${size}px;height:${size}px;object-fit:contain;vertical-align:middle;display:inline-block"
-              onerror="this.outerHTML='<span style=\\'display:inline-block;width:${size}px;height:${size}px;border-radius:50%;background:${color};vertical-align:middle\\'></span>'" />`;
-  }
-  return `<span style="display:inline-block;width:${size}px;height:${size}px;border-radius:50%;background:${color};vertical-align:middle"></span>`;
-}
-function pct(mult) {
-  const diff = Math.round((mult - 1) * 100);
-  return diff === 0 ? "0%" : (diff > 0 ? "+" : "") + diff + "%";
-}
 function log(msg) { state.log.push(`[R${getCurrentRound(state.competitions[MY_COMP_ID]) ?? "fim"}] ${msg}`); }
