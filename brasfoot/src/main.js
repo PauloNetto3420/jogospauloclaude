@@ -79,6 +79,35 @@ const $btnPlay = document.getElementById("btn-play-round");
 const $overlay = document.getElementById("match-overlay");
 const $sidebar = document.getElementById("sidebar");
 const $topbar = document.getElementById("topbar");
+const $menuToggle = document.getElementById("menu-toggle");
+const $sidebarScrim = document.getElementById("sidebar-scrim");
+
+// -------------------- Drawer mobile --------------------
+// No mobile a sidebar vira drawer. O hambúrguer abre, e qualquer um destes
+// fecha: clicar no scrim, navegar (clique no nav) ou apertar Esc.
+function openDrawer() {
+  $sidebar.classList.add("open");
+  $sidebarScrim.classList.add("visible");
+  $menuToggle.setAttribute("aria-expanded", "true");
+}
+function closeDrawer() {
+  $sidebar.classList.remove("open");
+  $sidebarScrim.classList.remove("visible");
+  $menuToggle.setAttribute("aria-expanded", "false");
+}
+function toggleDrawer() {
+  if ($sidebar.classList.contains("open")) closeDrawer();
+  else openDrawer();
+}
+$menuToggle.addEventListener("click", toggleDrawer);
+$sidebarScrim.addEventListener("click", closeDrawer);
+$sidebar.addEventListener("click", (e) => {
+  // Fecha ao clicar num item de navegação (delegação)
+  if (e.target.closest(".nav-btn")) closeDrawer();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && $sidebar.classList.contains("open")) closeDrawer();
+});
 
 // -------------------- Boot --------------------
 bootstrap();

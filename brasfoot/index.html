@@ -9,6 +9,7 @@
 <body>
   <div id="app">
     <header id="topbar">
+      <button id="menu-toggle" aria-label="Abrir menu" aria-expanded="false">☰</button>
       <h1>BRAS<span class="accent">FOOT</span></h1>
       <div class="info" id="topbar-info"></div>
     </header>
@@ -22,6 +23,9 @@
     </aside>
 
     <main id="main"></main>
+
+    <!-- Scrim: escurece o conteúdo quando o drawer está aberto no mobile -->
+    <div id="sidebar-scrim"></div>
   </div>
 
   <div id="player-modal" class="modal-backdrop">
