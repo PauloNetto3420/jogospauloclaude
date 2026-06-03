@@ -1,0 +1,12 @@
+# wrangler / Cloudflare
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
+
+# Node
+node_modules/
+
+# Config local de ferramentas (preview/dev server)
+.claude/

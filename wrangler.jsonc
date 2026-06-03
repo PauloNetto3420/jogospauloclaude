@@ -1,0 +1,16 @@
+{
+  // Configuração de deploy do Cloudflare Workers (static assets).
+  // O jogo é estático puro (HTML + ES modules), servido direto da pasta brasfoot/.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "jogospauloclaude",
+  "compatibility_date": "2026-06-02",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "brasfoot"
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
