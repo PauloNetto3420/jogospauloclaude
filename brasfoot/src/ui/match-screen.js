@@ -56,7 +56,10 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
     };
   };
 
-  const renderMatch = () => {
+  // Estrutura ESTÁTICA do placar (escudos, nomes, formação). Renderizada
+  // uma única vez por partida — não pode entrar no loop de tick, senão as
+  // <img> dos escudos são recriadas a cada minuto e "piscam".
+  const renderScoreboardShell = () => {
     document.getElementById("scoreboard").innerHTML = `
       <div class="team">
         <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:6px">
@@ -67,7 +70,7 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
       </div>
       <div class="center">
         <div class="score"><span class="sc" id="sc-home">${sim.score.home}</span> <span style="color:var(--muted);font-size:32px">×</span> <span class="sc" id="sc-away">${sim.score.away}</span></div>
-        <div class="minute">${sim.minute >= 90 ? "FIM DE JOGO" : sim.minute + "'"}</div>
+        <div class="minute" id="match-minute">${sim.minute >= 90 ? "FIM DE JOGO" : sim.minute + "'"}</div>
       </div>
       <div class="team">
         <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:6px">
@@ -77,6 +80,14 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
         <div class="short">${away.shortName} · ${away.tactics?.formation || "4-3-3"}</div>
       </div>
     `;
+  };
+
+  // Controle de re-render do feed: só reconstrói quando há evento novo ou
+  // o painel de substituição abre/fecha (evita re-animar a lista todo tick).
+  let lastEventCount = -1;
+  let lastSubPanelOpen = null;
+
+  const renderFeed = () => {
     if (subPanel.open) {
       document.getElementById("match-events").innerHTML = renderSubPanelHTML();
       wireSubPanel();
@@ -89,6 +100,25 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
           </div>`).join("")
         : `<p style="color:var(--muted)">Aguardando o apito inicial...</p>`;
     }
+  };
+
+  const renderMatch = () => {
+    // Garante o shell (auto-cura se o scoreboard estiver vazio/obsoleto)
+    if (!document.getElementById("sc-home")) renderScoreboardShell();
+
+    // Atualiza só os números (sem tocar nos escudos → sem flicker)
+    document.getElementById("sc-home").textContent = sim.score.home;
+    document.getElementById("sc-away").textContent = sim.score.away;
+    const minEl = document.getElementById("match-minute");
+    if (minEl) minEl.textContent = sim.minute >= 90 ? "FIM DE JOGO" : sim.minute + "'";
+
+    // Feed: só re-renderiza quando muda de verdade
+    if (sim.events.length !== lastEventCount || subPanel.open !== lastSubPanelOpen) {
+      renderFeed();
+      lastEventCount = sim.events.length;
+      lastSubPanelOpen = subPanel.open;
+    }
+
     const ds = getDisplayStats();
     document.getElementById("match-stats").innerHTML = renderMatchStats(ds.home, ds.away);
     renderParallelsPanel();
@@ -278,7 +308,8 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
     document.querySelectorAll("[data-out]").forEach(el => {
       el.onclick = () => {
         subPanel.pendingOut = el.dataset.out;
-        renderMatch();
+        renderFeed(); // redesenha só o painel (destaca o selecionado), sem flicker
+        wireSubPanel();
       };
     });
     document.querySelectorAll("[data-in]").forEach(el => {
@@ -290,8 +321,9 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
           return;
         }
         subPanel.pendingOut = null;
-        renderMatch();
-        renderControls();
+        renderFeed();      // atualiza listas em campo/banco
+        wireSubPanel();
+        renderControls();  // atualiza contador de trocas/janelas
       };
     });
     document.getElementById("btn-sub-close")?.addEventListener("click", closeSubPanel);
@@ -389,6 +421,7 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
     };
   };
 
+  renderScoreboardShell(); // escudos/nomes uma vez só (estáticos)
   renderControls();
   renderMatch();
   updateProgress(); // barra começa em 0'
