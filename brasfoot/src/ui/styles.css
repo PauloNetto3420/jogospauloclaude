@@ -295,6 +295,92 @@ button.btn-toggle.on { background: var(--accent); color: #000; border-color: var
   letter-spacing: -2px;
   font-variant-numeric: tabular-nums;
 }
+/* Cada número do placar é envolto pra poder animar individualmente */
+.scoreboard .score .sc {
+  display: inline-block;
+  transition: color .2s;
+}
+/* Pulse no número que acabou de mudar (gol). Aplicado via classe temporária. */
+.scoreboard .score .sc.bump { animation: scoreBump .6s cubic-bezier(.2,.9,.3,1.3); }
+@keyframes scoreBump {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.6); }
+  100% { transform: scale(1); }
+}
+
+/* -------------------- Barra de progresso do tempo -------------------- */
+.match-progress {
+  position: relative;
+  height: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin: -12px 0 24px;
+  overflow: hidden;
+}
+.match-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent-2), var(--accent));
+  border-radius: 4px;
+  transition: width .35s linear;
+}
+/* Marca do intervalo (45') — linha sutil no meio */
+.match-progress-ht {
+  position: absolute;
+  top: -2px;
+  left: 50%;
+  width: 2px;
+  height: 10px;
+  background: var(--muted);
+  opacity: 0.5;
+}
+
+/* -------------------- Flash do placar ao marcar/sofrer -------------------- */
+/* Aplicado no #match-overlay: borda/glow verde quando seu time marca,
+   vermelho quando sofre. Classe removida após a animação. */
+#match-overlay.flash-pro  .scoreboard { animation: flashPro .9s ease; }
+#match-overlay.flash-con  .scoreboard { animation: flashCon .9s ease; }
+@keyframes flashPro {
+  0%   { box-shadow: 0 0 0 0 rgba(var(--accent-rgb),0); }
+  25%  { box-shadow: 0 0 0 3px rgba(var(--accent-rgb),0.7), 0 0 30px rgba(var(--accent-rgb),0.4); }
+  100% { box-shadow: 0 0 0 0 rgba(var(--accent-rgb),0); }
+}
+@keyframes flashCon {
+  0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+  25%  { box-shadow: 0 0 0 3px rgba(239,68,68,0.7), 0 0 30px rgba(239,68,68,0.4); }
+  100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+}
+
+/* Banner "GOL!" que aparece brevemente sobre o placar */
+.goal-banner {
+  position: fixed;
+  top: 18%;
+  left: 50%;
+  transform: translateX(-50%) scale(.6);
+  z-index: 110;
+  font-size: 64px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: var(--accent);
+  text-shadow: 0 4px 24px rgba(var(--accent-rgb),0.5);
+  pointer-events: none;
+  opacity: 0;
+  animation: goalBanner 1.4s ease forwards;
+}
+.goal-banner.con { color: var(--danger); text-shadow: 0 4px 24px rgba(239,68,68,0.5); }
+@keyframes goalBanner {
+  0%   { opacity: 0; transform: translateX(-50%) scale(.6); }
+  15%  { opacity: 1; transform: translateX(-50%) scale(1.1); }
+  70%  { opacity: 1; transform: translateX(-50%) scale(1); }
+  100% { opacity: 0; transform: translateX(-50%) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .goal-banner, .scoreboard .score .sc.bump,
+  #match-overlay.flash-pro .scoreboard, #match-overlay.flash-con .scoreboard {
+    animation: none;
+  }
+}
 .scoreboard .minute {
   font-size: 14px;
   color: var(--accent);
@@ -769,10 +855,12 @@ button.btn-toggle.on { background: var(--accent); color: #000; border-color: var
 
   /* Tela de partida: empilha feed e stats, placar menor */
   #match-overlay { padding: 16px; }
-  .scoreboard { gap: 12px; padding: 18px 16px; margin-bottom: 16px; }
+  .scoreboard { gap: 12px; padding: 18px 16px; margin-bottom: 12px; }
   .scoreboard .team .name { font-size: 17px; }
   .scoreboard .center { min-width: 0; }
   .scoreboard .score { font-size: 44px; letter-spacing: -1px; }
+  .match-progress { margin: -4px 0 16px; }
+  .goal-banner { font-size: 44px; }
   .match-body { grid-template-columns: 1fr; gap: 12px; overflow-y: auto; }
   .match-footer .btn { padding: 12px 24px; }
 }

@@ -66,7 +66,7 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
         <div class="short">${home.shortName} · ${home.tactics?.formation || "4-3-3"}</div>
       </div>
       <div class="center">
-        <div class="score">${sim.score.home} <span style="color:var(--muted);font-size:32px">×</span> ${sim.score.away}</div>
+        <div class="score"><span class="sc" id="sc-home">${sim.score.home}</span> <span style="color:var(--muted);font-size:32px">×</span> <span class="sc" id="sc-away">${sim.score.away}</span></div>
         <div class="minute">${sim.minute >= 90 ? "FIM DE JOGO" : sim.minute + "'"}</div>
       </div>
       <div class="team">
@@ -92,6 +92,35 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
     const ds = getDisplayStats();
     document.getElementById("match-stats").innerHTML = renderMatchStats(ds.home, ds.away);
     renderParallelsPanel();
+  };
+
+  // Atualiza a barra de progresso do tempo (0→90'). CSS faz a transição suave.
+  const updateProgress = () => {
+    const fill = document.getElementById("match-progress-fill");
+    if (fill) fill.style.width = `${Math.min(100, (sim.minute / 90) * 100)}%`;
+  };
+
+  // Dispara o feedback visual de gol: bump no número, flash no placar e banner.
+  // side = "home" | "away". O usuário marcou se side === userSide.
+  const celebrateGoal = (side) => {
+    const pro = side === userSide;
+    const overlay = $overlay;
+    // Flash da scoreboard (verde = a favor, vermelho = contra)
+    overlay.classList.remove("flash-pro", "flash-con");
+    void overlay.offsetWidth; // reinicia a animação
+    overlay.classList.add(pro ? "flash-pro" : "flash-con");
+    setTimeout(() => overlay.classList.remove("flash-pro", "flash-con"), 950);
+
+    // Bump no número que mudou
+    const sc = document.getElementById(side === "home" ? "sc-home" : "sc-away");
+    if (sc) { sc.classList.remove("bump"); void sc.offsetWidth; sc.classList.add("bump"); }
+
+    // Banner "GOL!" sobreposto
+    const banner = document.createElement("div");
+    banner.className = "goal-banner" + (pro ? "" : " con");
+    banner.textContent = pro ? "⚽ GOL!" : "GOL";
+    overlay.appendChild(banner);
+    setTimeout(() => banner.remove(), 1400);
   };
 
   const renderParallelsPanel = () => {
@@ -282,6 +311,8 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
 
   const tick = () => {
     if (aborted || paused) return;
+    const prevHome = sim.score.home;
+    const prevAway = sim.score.away;
     sim.tick();
     tickParallels();
     // IA do adversário do usuário: subs em 60' e 75'
@@ -291,6 +322,10 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
     }
     renderMatch();
     renderControls();
+    updateProgress();
+    // Detecta gol(s) deste minuto e celebra
+    if (sim.score.home > prevHome) celebrateGoal("home");
+    if (sim.score.away > prevAway) celebrateGoal("away");
 
     if (sim.isFinished()) {
       finishMatch();
@@ -320,6 +355,7 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
       while (!ps.sim.isFinished()) ps.sim.tick();
     }
     renderMatch();
+    updateProgress(); // pula direto pra barra cheia (90')
     finishMatch();
   };
 
@@ -341,6 +377,9 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
 
   const finishMatch = () => {
     applyParallels();
+    // Limpa qualquer resíduo de animação de gol
+    $overlay.classList.remove("flash-pro", "flash-con");
+    $overlay.querySelectorAll(".goal-banner").forEach(b => b.remove());
     document.getElementById("match-footer").innerHTML = `
       <button class="btn" id="btn-continue">Continuar ▶</button>
     `;
@@ -352,6 +391,7 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
 
   renderControls();
   renderMatch();
+  updateProgress(); // barra começa em 0'
   timer = setTimeout(tick, MATCH_SPEEDS[speed]);
 }
 
