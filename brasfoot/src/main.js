@@ -472,6 +472,8 @@ function injectResetButton() {
   document.querySelector(".play-section").appendChild(btn);
 }
 
+let _lastRenderedView = null;
+
 function render() {
   renderShell();
   if (ui.view === "lineup")    $main.innerHTML = renderLineup();
@@ -482,6 +484,16 @@ function render() {
   if (ui.view === "academy")   $main.innerHTML = renderAcademy();
   if (ui.view === "finance")   $main.innerHTML = renderFinance();
   if (ui.view === "inbox")     $main.innerHTML = renderInbox();
+
+  // Fade de entrada só quando a aba MUDA (não a cada ação dentro da view,
+  // senão a tela piscaria a cada clique de escalar/ofertar/etc.).
+  if (ui.view !== _lastRenderedView) {
+    _lastRenderedView = ui.view;
+    $main.classList.remove("view-enter");
+    void $main.offsetWidth; // reinicia a animação
+    $main.classList.add("view-enter");
+  }
+
   wireView();
 }
 
