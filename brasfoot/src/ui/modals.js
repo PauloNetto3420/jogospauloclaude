@@ -4,6 +4,7 @@
 //   - Disputa de pênaltis (showPenaltyShootoutModal)
 //   - Sorteio dos grupos do estadual (showEstadualDrawModal)
 //   - Sorteio das fases da Copa (showCupDrawModal)
+//   - Resumo de fim de temporada (showSeasonRecapModal)
 //
 // Os modais leem `state` via core/store (live binding). O time gerenciado é
 // obtido por `state.managedTeamId` (sempre sincronizado com MY_TEAM_ID).
@@ -708,4 +709,107 @@ export function showCupDrawModal(cup, phaseKey, onContinue) {
       onContinue();
     }
   });
+}
+
+// -------------------- Modal: Fim de Temporada --------------------
+// Substitui o alert() cru por um resumo visual: campeões com escudo,
+// fluxo de promoção/rebaixamento e destaque pro time do usuário.
+// `info` traz dados já resolvidos pelo season-flow (campeões A/B/C, listas
+// de IDs, nova competição do usuário).
+export function showSeasonRecapModal(info, onContinue) {
+  const myTeamId = state.managedTeamId;
+
+  // Linha de um campeão com escudo
+  const champRow = (label, teamId) => {
+    if (!teamId) return "";
+    const t = state.teams[teamId];
+    if (!t) return "";
+    const mine = teamId === myTeamId;
+    return `
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:8px;
+                  background:${mine ? "rgba(var(--accent-rgb),0.10)" : "var(--bg-2)"};
+                  border:1px solid ${mine ? "var(--accent)" : "var(--border)"};margin-bottom:8px">
+        <span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;width:54px;flex-shrink:0">${label}</span>
+        <span style="font-size:22px">🏆</span>
+        ${teamLogo(teamId, 30)}
+        <span style="font-weight:700;font-size:15px">${t.name}</span>
+        ${mine ? `<span class="badge" style="background:var(--accent);color:#000;margin-left:auto">VOCÊ</span>` : ""}
+      </div>`;
+  };
+
+  // Lista de times (sobe/desce) como chips com escudo
+  const teamChips = (ids) => {
+    if (!ids || !ids.length) return `<span style="color:var(--muted);font-size:12px">—</span>`;
+    return ids.map(id => {
+      const t = state.teams[id];
+      if (!t) return "";
+      const mine = id === myTeamId;
+      return `<span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:14px;
+                  background:${mine ? "rgba(var(--accent-rgb),0.12)" : "var(--bg-2)"};
+                  border:1px solid ${mine ? "var(--accent)" : "var(--border)"};
+                  font-size:12px;font-weight:${mine ? "700" : "500"};margin:0 4px 4px 0">
+                ${teamLogo(id, 16)} ${t.shortName}</span>`;
+    }).join("");
+  };
+
+  // Bloco de movimentação (título + seta + chips)
+  const flowBlock = (title, arrow, ids, arrowColor) => `
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">
+        <span style="color:${arrowColor};font-weight:700">${arrow}</span> ${title}
+      </div>
+      <div>${teamChips(ids)}</div>
+    </div>`;
+
+  const myTeam = state.teams[myTeamId];
+  const myFinishLine = myTeam
+    ? `Você dirige o <b style="color:var(--accent)">${myTeam.name}</b> na temporada ${info.nextSeason} · <b>${info.myCompName}</b>.`
+    : "";
+
+  const container = document.createElement("div");
+  container.className = "modal-backdrop visible";
+  container.style.zIndex = "300";
+  container.innerHTML = `
+    <div class="modal season-recap" style="max-width:560px;max-height:90vh;display:flex;flex-direction:column">
+      <div style="padding:22px 24px 16px;border-bottom:1px solid var(--border);text-align:center">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px">Fim da Temporada</div>
+        <h2 style="font-size:26px;margin:6px 0 0">⭐ ${info.season}</h2>
+      </div>
+      <div style="padding:20px 24px;overflow-y:auto;flex:1">
+        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px">Campeões</div>
+        ${champRow("Série A", info.champA)}
+        ${champRow("Série B", info.champB)}
+        ${info.champC ? champRow("Série C", info.champC) : ""}
+
+        <div style="height:1px;background:var(--border);margin:18px 0"></div>
+
+        ${flowBlock("Série B → A · promovidos", "⬆️", info.promoted, "var(--accent)")}
+        ${flowBlock("Série A → B · rebaixados", "⬇️", info.relegated, "var(--danger)")}
+        ${flowBlock("Série C → B · promovidos", "⬆️", info.promotedFromC, "var(--accent)")}
+        ${flowBlock("Série B → C · rebaixados", "⬇️", info.relegatedToC, "var(--danger)")}
+
+        <div style="display:flex;gap:16px;justify-content:center;margin-top:8px;padding-top:14px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)">
+          <span>👋 ${info.retiredCount} aposentadorias</span>
+          <span>📄 ${info.freeAgentsCount} contratos vencidos</span>
+        </div>
+      </div>
+      <div style="padding:16px 24px;border-top:1px solid var(--border)">
+        ${myFinishLine ? `<div style="font-size:13px;text-align:center;margin-bottom:12px">${myFinishLine}</div>` : ""}
+        <button class="btn" id="recap-btn" style="width:100%;padding:13px">Próxima temporada ▶</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(container);
+
+  const close = () => {
+    document.removeEventListener("keydown", onKey);
+    container.remove();
+    onContinue && onContinue();
+  };
+  function onKey(e) {
+    if (e.key === "Escape" || e.key === "Enter") close();
+  }
+  container.querySelector("#recap-btn").onclick = close;
+  container.addEventListener("click", (e) => { if (e.target === container) close(); });
+  document.addEventListener("keydown", onKey);
 }
