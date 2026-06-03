@@ -32,7 +32,7 @@ import {
 import { applyTraining, TRAINING_FOCI } from "../engine/training.js";
 import { validateLineup, autoLineup } from "../engine/lineup-helpers.js";
 import { saveGame } from "../db.js";
-import { showCupDrawModal, showEstadualDrawModal, showPenaltyShootoutModal } from "../ui/modals.js";
+import { showCupDrawModal, showEstadualDrawModal, showPenaltyShootoutModal, showSeasonRecapModal } from "../ui/modals.js";
 import { playMatchOnScreen } from "../ui/match-screen.js";
 import { applyCupLegToState, applyEstadualMatchResult } from "./match-apply.js";
 
@@ -796,16 +796,23 @@ function showSeasonRecap(report) {
     state.estadualRound = 1;
 
     const myCompName = state.competitions[ui.myCompId]?.name ?? "—";
-    alert(
-      `Fim da temporada ${report.season}!\n\n` +
-      `🏆 Série A: ${champA}\n🏆 Série B: ${champB}` +
-      (champC ? `\n🏆 Série C: ${champC}` : "") + `\n\n` +
-      `Série A → B (rebaixados): ${relegated}\n` +
-      `Série B → A (promovidos): ${promoted}\n` +
-      `Série B → C (rebaixados): ${relegatedToC}\n` +
-      `Série C → B (promovidos): ${promotedFromC}\n\n` +
-      `Você dirige o ${state.teams[ui.myTeamId]?.name ?? "?"} na temporada ${state.season} (${myCompName}).`
-    );
+    // Modal visual (substitui o antigo alert de texto). Recebe IDs pra
+    // renderizar escudos; o estado da nova temporada já foi montado acima,
+    // então quando o usuário fecha o modal a UI re-renderiza atualizada.
+    showSeasonRecapModal({
+      season: report.season,
+      nextSeason: state.season,
+      myCompName,
+      champA: report.champions.brasileirao_a,
+      champB: report.champions.brasileirao_b,
+      champC: champCId || null,
+      promoted: report.promoted || [],
+      relegated: report.relegated || [],
+      promotedFromC: report.promotedFromC || [],
+      relegatedToC: report.relegatedToC || [],
+      retiredCount: report.retired.length,
+      freeAgentsCount: report.freeAgents.length,
+    }, () => render());
   } catch (e) {
     console.error("Erro no showSeasonRecap:", e);
     const fallback = resolveUserCompetition();

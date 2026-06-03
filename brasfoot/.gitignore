@@ -1,0 +1,6 @@
+# Config local de ferramentas (preview/dev server) — não versionar
+.claude/
+
+# Node
+node_modules/
+npm-debug.log*

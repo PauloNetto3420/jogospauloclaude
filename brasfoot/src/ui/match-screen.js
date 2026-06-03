@@ -5,6 +5,7 @@
 
 import { state, ui, rng } from "../core/store.js";
 import { teamLogo, ovrClass } from "./format.js";
+import { toast } from "./toast.js";
 import { createMatchSimulator } from "../engine/match.js";
 import { applyMatchResult } from "../engine/season.js";
 import { applyCupLegToState, applyEstadualMatchResult } from "../core/match-apply.js";
@@ -56,7 +57,10 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
     };
   };
 
-  const renderMatch = () => {
+  // Estrutura ESTÁTICA do placar (escudos, nomes, formação). Renderizada
+  // uma única vez por partida — não pode entrar no loop de tick, senão as
+  // <img> dos escudos são recriadas a cada minuto e "piscam".
+  const renderScoreboardShell = () => {
     document.getElementById("scoreboard").innerHTML = `
       <div class="team">
         <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:6px">
@@ -66,8 +70,8 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
         <div class="short">${home.shortName} · ${home.tactics?.formation || "4-3-3"}</div>
       </div>
       <div class="center">
-        <div class="score">${sim.score.home} <span style="color:var(--muted);font-size:32px">×</span> ${sim.score.away}</div>
-        <div class="minute">${sim.minute >= 90 ? "FIM DE JOGO" : sim.minute + "'"}</div>
+        <div class="score"><span class="sc" id="sc-home">${sim.score.home}</span> <span style="color:var(--muted);font-size:32px">×</span> <span class="sc" id="sc-away">${sim.score.away}</span></div>
+        <div class="minute" id="match-minute">${sim.minute >= 90 ? "FIM DE JOGO" : sim.minute + "'"}</div>
       </div>
       <div class="team">
         <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:6px">
@@ -77,6 +81,14 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
         <div class="short">${away.shortName} · ${away.tactics?.formation || "4-3-3"}</div>
       </div>
     `;
+  };
+
+  // Controle de re-render do feed: só reconstrói quando há evento novo ou
+  // o painel de substituição abre/fecha (evita re-animar a lista todo tick).
+  let lastEventCount = -1;
+  let lastSubPanelOpen = null;
+
+  const renderFeed = () => {
     if (subPanel.open) {
       document.getElementById("match-events").innerHTML = renderSubPanelHTML();
       wireSubPanel();
@@ -89,9 +101,57 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
           </div>`).join("")
         : `<p style="color:var(--muted)">Aguardando o apito inicial...</p>`;
     }
+  };
+
+  const renderMatch = () => {
+    // Garante o shell (auto-cura se o scoreboard estiver vazio/obsoleto)
+    if (!document.getElementById("sc-home")) renderScoreboardShell();
+
+    // Atualiza só os números (sem tocar nos escudos → sem flicker)
+    document.getElementById("sc-home").textContent = sim.score.home;
+    document.getElementById("sc-away").textContent = sim.score.away;
+    const minEl = document.getElementById("match-minute");
+    if (minEl) minEl.textContent = sim.minute >= 90 ? "FIM DE JOGO" : sim.minute + "'";
+
+    // Feed: só re-renderiza quando muda de verdade
+    if (sim.events.length !== lastEventCount || subPanel.open !== lastSubPanelOpen) {
+      renderFeed();
+      lastEventCount = sim.events.length;
+      lastSubPanelOpen = subPanel.open;
+    }
+
     const ds = getDisplayStats();
     document.getElementById("match-stats").innerHTML = renderMatchStats(ds.home, ds.away);
     renderParallelsPanel();
+  };
+
+  // Atualiza a barra de progresso do tempo (0→90'). CSS faz a transição suave.
+  const updateProgress = () => {
+    const fill = document.getElementById("match-progress-fill");
+    if (fill) fill.style.width = `${Math.min(100, (sim.minute / 90) * 100)}%`;
+  };
+
+  // Dispara o feedback visual de gol: bump no número, flash no placar e banner.
+  // side = "home" | "away". O usuário marcou se side === userSide.
+  const celebrateGoal = (side) => {
+    const pro = side === userSide;
+    const overlay = $overlay;
+    // Flash da scoreboard (verde = a favor, vermelho = contra)
+    overlay.classList.remove("flash-pro", "flash-con");
+    void overlay.offsetWidth; // reinicia a animação
+    overlay.classList.add(pro ? "flash-pro" : "flash-con");
+    setTimeout(() => overlay.classList.remove("flash-pro", "flash-con"), 950);
+
+    // Bump no número que mudou
+    const sc = document.getElementById(side === "home" ? "sc-home" : "sc-away");
+    if (sc) { sc.classList.remove("bump"); void sc.offsetWidth; sc.classList.add("bump"); }
+
+    // Banner "GOL!" sobreposto
+    const banner = document.createElement("div");
+    banner.className = "goal-banner" + (pro ? "" : " con");
+    banner.textContent = pro ? "⚽ GOL!" : "GOL";
+    overlay.appendChild(banner);
+    setTimeout(() => banner.remove(), 1400);
   };
 
   const renderParallelsPanel = () => {
@@ -249,7 +309,8 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
     document.querySelectorAll("[data-out]").forEach(el => {
       el.onclick = () => {
         subPanel.pendingOut = el.dataset.out;
-        renderMatch();
+        renderFeed(); // redesenha só o painel (destaca o selecionado), sem flicker
+        wireSubPanel();
       };
     });
     document.querySelectorAll("[data-in]").forEach(el => {
@@ -257,12 +318,13 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
         if (!subPanel.pendingOut) return;
         const res = sim.substitute(userSide, subPanel.pendingOut, el.dataset.in);
         if (!res.ok) {
-          alert(res.message);
+          toast(res.message, "warning");
           return;
         }
         subPanel.pendingOut = null;
-        renderMatch();
-        renderControls();
+        renderFeed();      // atualiza listas em campo/banco
+        wireSubPanel();
+        renderControls();  // atualiza contador de trocas/janelas
       };
     });
     document.getElementById("btn-sub-close")?.addEventListener("click", closeSubPanel);
@@ -282,6 +344,8 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
 
   const tick = () => {
     if (aborted || paused) return;
+    const prevHome = sim.score.home;
+    const prevAway = sim.score.away;
     sim.tick();
     tickParallels();
     // IA do adversário do usuário: subs em 60' e 75'
@@ -291,6 +355,10 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
     }
     renderMatch();
     renderControls();
+    updateProgress();
+    // Detecta gol(s) deste minuto e celebra
+    if (sim.score.home > prevHome) celebrateGoal("home");
+    if (sim.score.away > prevAway) celebrateGoal("away");
 
     if (sim.isFinished()) {
       finishMatch();
@@ -320,6 +388,7 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
       while (!ps.sim.isFinished()) ps.sim.tick();
     }
     renderMatch();
+    updateProgress(); // pula direto pra barra cheia (90')
     finishMatch();
   };
 
@@ -341,6 +410,9 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
 
   const finishMatch = () => {
     applyParallels();
+    // Limpa qualquer resíduo de animação de gol
+    $overlay.classList.remove("flash-pro", "flash-con");
+    $overlay.querySelectorAll(".goal-banner").forEach(b => b.remove());
     document.getElementById("match-footer").innerHTML = `
       <button class="btn" id="btn-continue">Continuar ▶</button>
     `;
@@ -350,8 +422,10 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
     };
   };
 
+  renderScoreboardShell(); // escudos/nomes uma vez só (estáticos)
   renderControls();
   renderMatch();
+  updateProgress(); // barra começa em 0'
   timer = setTimeout(tick, MATCH_SPEEDS[speed]);
 }
 
