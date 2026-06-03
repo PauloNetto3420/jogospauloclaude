@@ -22,6 +22,7 @@ import { SERIE_A_SEED, SERIE_B_SEED, SERIE_C_SEED } from "../data/teams.seed.js"
 import { state, rng, setState, setRng, ui } from "./core/store.js";
 import { fmt, ovrClass, teamLogo } from "./ui/format.js";
 import { applyTeamTheme } from "./ui/theme.js";
+import { toast, toastResult, confirmDialog, promptDialog } from "./ui/toast.js";
 import {
   openMatchDetail, wirePlayerClicks,
   showPenaltyShootoutModal, showEstadualDrawModal, showCupDrawModal,
@@ -156,7 +157,13 @@ function renderBootScreen(save) {
 
   document.getElementById("btn-continue-save").onclick = () => loadIntoState(save);
   document.getElementById("btn-new-game").onclick = async () => {
-    if (confirm("Apagar o save atual e começar um novo jogo?")) {
+    const ok = await confirmDialog({
+      title: "Novo jogo",
+      message: "Apagar o save atual e começar um novo jogo?",
+      confirmText: "Apagar e recomeçar",
+      danger: true,
+    });
+    if (ok) {
       await deleteSave(save.saveId);
       renderTeamPicker();
     }
@@ -465,7 +472,13 @@ function injectResetButton() {
   btn.style.cssText = "width:calc(100% - 24px);margin:8px 12px 0;font-size:11px";
   btn.textContent = "Apagar save e recomeçar";
   btn.onclick = async () => {
-    if (!confirm("Apagar progresso e voltar à seleção de time?")) return;
+    const ok = await confirmDialog({
+      title: "Recomeçar",
+      message: "Apagar progresso e voltar à seleção de time?",
+      confirmText: "Apagar progresso",
+      danger: true,
+    });
+    if (!ok) return;
     if (state?.saveId) await deleteSave(state.saveId);
     location.reload();
   };
@@ -531,6 +544,7 @@ function wireView() {
     btn.onclick = () => {
       const res = unlistPlayer(state, ui.myTeamId, btn.dataset.unlist);
       log((res.ok ? "✅ " : "❌ ") + res.message);
+      toastResult(res);
       render();
     };
   });
@@ -592,25 +606,28 @@ function wireView() {
   }
 }
 
-function handleRequestAction(action, reqId) {
+async function handleRequestAction(action, reqId) {
   const req = state.transferRequests?.find(r => r.id === reqId);
   if (!req) return;
   const player = state.players[req.playerId];
   if (!player) return;
 
+  let ok = true;
   if (action === "list") {
-    if (!confirm(`Listar ${player.name} pra venda? A IA priorizará propostas por ele.`)) return;
+    ok = await confirmDialog({ title: "Listar para venda", message: `Listar ${player.name} pra venda? A IA priorizará propostas por ele.`, confirmText: "Listar" });
   } else if (action === "promise") {
-    if (!confirm(`Prometer mais espaço pra ${player.name}? Recupera moral, mas você precisa cumprir escalando.`)) return;
+    ok = await confirmDialog({ title: "Prometer espaço", message: `Prometer mais espaço pra ${player.name}? Recupera moral, mas você precisa cumprir escalando.`, confirmText: "Prometer" });
   } else if (action === "reject") {
-    if (!confirm(`Recusar o pedido de ${player.name}? A moral dele vai cair forte.`)) return;
+    ok = await confirmDialog({ title: "Recusar pedido", message: `Recusar o pedido de ${player.name}? A moral dele vai cair forte.`, confirmText: "Recusar", danger: true });
   }
+  if (!ok) return;
   const res = resolveTransferRequest(state, reqId, action);
   log((res.ok ? "✅ " : "❌ ") + res.message);
+  toastResult(res);
   render();
 }
 
-function handleOfferAction(action, offerId) {
+async function handleOfferAction(action, offerId) {
   const offer = state.transferOffers?.find(o => o.id === offerId);
   if (!offer) return;
   const fromTeam = state.teams[offer.fromTeamId];
@@ -618,99 +635,128 @@ function handleOfferAction(action, offerId) {
   if (!fromTeam || !player) return;
 
   if (action === "accept") {
-    if (!confirm(`Vender ${player.name} ao ${fromTeam.shortName} por R$ ${fmt(offer.fee)}?`)) return;
+    const ok = await confirmDialog({
+      title: "Aceitar proposta",
+      message: `Vender ${player.name} ao ${fromTeam.shortName} por R$ ${fmt(offer.fee)}?`,
+      confirmText: "Vender",
+    });
+    if (!ok) return;
     const res = respondToOffer(state, offerId, "accept");
     log((res.accepted ? "✅ " : "❌ ") + res.message);
+    toastResult(res);
     render();
     return;
   }
 
   if (action === "reject") {
-    if (!confirm(`Recusar a proposta do ${fromTeam.shortName} por ${player.name}?`)) return;
+    const ok = await confirmDialog({
+      title: "Recusar proposta",
+      message: `Recusar a proposta do ${fromTeam.shortName} por ${player.name}?`,
+      confirmText: "Recusar", danger: true,
+    });
+    if (!ok) return;
     const res = respondToOffer(state, offerId, "reject");
     log("❌ " + res.message);
+    toast(res.message, "info");
     render();
     return;
   }
 
   if (action === "counter") {
     const suggestion = Math.round(offer.fee * 1.25);
-    const counterStr = prompt(
-      `Contrapor a proposta do ${fromTeam.shortName} por ${player.name}.\n` +
-      `· Oferta atual: R$ ${fmt(offer.fee)}\n` +
-      `· Valor de mercado: R$ ${fmt(player.marketValue)}\n\n` +
-      `Sua contraproposta (deve ser maior que a oferta atual):`,
-      String(suggestion)
-    );
+    const counterStr = await promptDialog({
+      title: `Contraproposta · ${player.name}`,
+      message: `${fromTeam.shortName} ofereceu R$ ${fmt(offer.fee)} · Valor de mercado: R$ ${fmt(player.marketValue)}.\nSua contraproposta (deve ser maior que a oferta atual):`,
+      defaultValue: String(suggestion),
+      type: "number",
+      confirmText: "Contrapor",
+    });
     if (!counterStr) return;
     const counterFee = Number(counterStr);
     const res = respondToOffer(state, offerId, "counter", counterFee);
     log((res.accepted ? "✅ " : "❌ ") + res.message);
+    toastResult(res);
     render();
   }
 }
 
-function handleAcademyAction(action, pid) {
+async function handleAcademyAction(action, pid) {
   const p = state.players[pid];
   if (!p) return;
   let res;
   if (action === "promote") {
     res = promoteProspect(state, ui.myTeamId, pid);
   } else if (action === "sell") {
-    if (!confirm(`Vender ${p.name} por R$ ${fmt(Math.max(50_000, Math.round(p.marketValue * 0.5)))}?`)) return;
+    const price = Math.max(50_000, Math.round(p.marketValue * 0.5));
+    const ok = await confirmDialog({ title: "Vender prospecto", message: `Vender ${p.name} por R$ ${fmt(price)}?`, confirmText: "Vender" });
+    if (!ok) return;
     res = sellProspect(state, ui.myTeamId, pid);
   } else if (action === "release") {
-    if (!confirm(`Liberar ${p.name} da base? Esta ação não tem retorno.`)) return;
+    const ok = await confirmDialog({ title: "Liberar prospecto", message: `Liberar ${p.name} da base? Esta ação não tem retorno.`, confirmText: "Liberar", danger: true });
+    if (!ok) return;
     res = releaseProspect(state, ui.myTeamId, pid);
   }
-  if (res) log((res.ok ? "🌱 " : "❌ ") + res.message);
+  if (res) { log((res.ok ? "🌱 " : "❌ ") + res.message); toastResult(res, { okPrefix: "🌱 " }); }
   render();
 }
 
-function handleBid(kind, pid) {
+async function handleBid(kind, pid) {
   const p = state.players[pid];
   const expSal = Math.round(Math.pow(Math.max(p.overall - 50, 1), 1.9) * 800);
 
   if (kind === "renew") {
     const exp = getRenewalExpectation(p);
-    const sal = prompt(
-      `Novo salário mensal para ${p.name}:\n` +
-      `· Salário atual: R$ ${fmt(p.contract.salary)}\n` +
-      `· Esperado pelo jogador: ~R$ ${fmt(exp)}\n\n` +
-      `Quanto oferece?`,
-      String(exp)
-    );
+    const sal = await promptDialog({
+      title: `Renovar · ${p.name}`,
+      message: `Salário atual: R$ ${fmt(p.contract.salary)} · Esperado: ~R$ ${fmt(exp)}.\nQuanto oferece por mês?`,
+      defaultValue: String(exp), type: "number", confirmText: "Avançar",
+    });
     if (!sal) return;
-    const yearsStr = prompt(
-      `Por quantos anos? (1-5)\n` +
-      `· Idade: ${p.age} (${p.age < 25 ? "jovem, prefere contratos longos" : p.age >= 33 ? "veterano, prefere contratos curtos" : "fase prime"})`,
-      p.age < 25 ? "4" : p.age >= 33 ? "2" : "3"
-    );
+    const yearsStr = await promptDialog({
+      title: `Duração do contrato`,
+      message: `Idade ${p.age} (${p.age < 25 ? "jovem, prefere contratos longos" : p.age >= 33 ? "veterano, prefere contratos curtos" : "fase prime"}). Por quantos anos? (1-5)`,
+      defaultValue: p.age < 25 ? "4" : p.age >= 33 ? "2" : "3", type: "number", confirmText: "Renovar",
+    });
     if (!yearsStr) return;
     const res = renewContract(state, {
       teamId: ui.myTeamId, playerId: pid,
       salaryOffer: Number(sal), years: Number(yearsStr),
     });
     log((res.accepted ? "✅ " : "❌ ") + res.message);
+    toastResult(res);
     render();
     return;
   }
 
   const round = getCurrentRound(state.competitions[ui.myCompId]) ?? 0;
   if (kind === "free") {
-    const sal = prompt(`Salário mensal para ${p.name} (esperado ~R$ ${fmt(expSal)}):`, String(expSal));
+    const sal = await promptDialog({
+      title: `Contratar · ${p.name}`,
+      message: `Agente livre. Salário mensal (esperado ~R$ ${fmt(expSal)}):`,
+      defaultValue: String(expSal), type: "number", confirmText: "Contratar",
+    });
     if (!sal) return;
     const res = signFreeAgent(state, { teamId: ui.myTeamId, playerId: pid, salaryOffer: Number(sal), currentRound: round });
     log((res.accepted ? "✅ " : "❌ ") + res.message);
+    toastResult(res);
   } else {
-    const fee = prompt(`Proposta por ${p.name} (valor: R$ ${fmt(p.marketValue)}):`, String(p.marketValue));
+    const fee = await promptDialog({
+      title: `Proposta · ${p.name}`,
+      message: `Valor de mercado: R$ ${fmt(p.marketValue)}. Quanto oferece pela compra?`,
+      defaultValue: String(p.marketValue), type: "number", confirmText: "Avançar",
+    });
     if (!fee) return;
-    const sal = prompt(`Salário oferecido (esperado ~R$ ${fmt(expSal)}):`, String(expSal));
+    const sal = await promptDialog({
+      title: `Salário · ${p.name}`,
+      message: `Salário mensal oferecido (esperado ~R$ ${fmt(expSal)}):`,
+      defaultValue: String(expSal), type: "number", confirmText: "Ofertar",
+    });
     if (!sal) return;
     const res = makeBid(state, {
       fromTeamId: ui.myTeamId, playerId: pid, fee: Number(fee), salaryOffer: Number(sal), currentRound: round,
     });
     log((res.accepted ? "✅ " : "❌ ") + res.message);
+    toastResult(res);
   }
   state.teams[ui.myTeamId].lineup = state.teams[ui.myTeamId].lineup
     .filter(id => state.teams[ui.myTeamId].squad.includes(id));

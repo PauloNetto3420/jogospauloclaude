@@ -5,6 +5,7 @@
 
 import { state, ui, rng } from "../core/store.js";
 import { teamLogo, ovrClass } from "./format.js";
+import { toast } from "./toast.js";
 import { createMatchSimulator } from "../engine/match.js";
 import { applyMatchResult } from "../engine/season.js";
 import { applyCupLegToState, applyEstadualMatchResult } from "../core/match-apply.js";
@@ -317,7 +318,7 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
         if (!subPanel.pendingOut) return;
         const res = sim.substitute(userSide, subPanel.pendingOut, el.dataset.in);
         if (!res.ok) {
-          alert(res.message);
+          toast(res.message, "warning");
           return;
         }
         subPanel.pendingOut = null;
