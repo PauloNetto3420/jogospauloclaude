@@ -11,8 +11,21 @@ import { runRound } from "../src/engine/season.js";
 import {
   createCariocaPhase1, getCariocaGroupStandings, getCariocaQualified,
   CARIOCA_GROUP_ROUNDS, CARIOCA_TEAM_IDS,
+  createCariocaKnockout, advanceCariocaKnockout, applyCariocaKnockoutResult,
+  getCariocaKnockoutLegs,
+  CARIOCA_QUARTERS_ROUND, CARIOCA_SEMI_LEG1_ROUND, CARIOCA_SEMI_LEG2_ROUND,
+  CARIOCA_FINAL_ROUND,
 } from "../src/engine/carioca.js";
 import { makeState } from "./helpers.js";
+
+// Qualified de teste: A=[A1..A4], B=[B1..B4]
+const QUAL = { A: ["A1", "A2", "A3", "A4"], B: ["B1", "B2", "B3", "B4"] };
+
+function playSingle(ko, tie, rng, hg, ag) {
+  tie.leg.played = true;
+  tie.leg.score = { home: hg, away: ag };
+  applyCariocaKnockoutResult(ko, tie.leg, rng);
+}
 
 function buildPhase1(seed = 7) {
   const rng = createRng(seed);
@@ -123,4 +136,77 @@ test("determinismo: mesma seed → mesmos grupos e fixtures", () => {
       p.fixtures.map(m => `${m.round}:${m.homeTeamId}-${m.awayTeamId}`).join(";");
   };
   assert.equal(dump(), dump(), "mesma seed deve gerar o mesmo chaveamento");
+});
+
+// -------------------- Mata-mata --------------------
+
+test("quartas: chaveamento 1A×4A, 2A×3A, 1B×4B, 2B×3B (intra-grupo)", () => {
+  const ko = createCariocaKnockout(QUAL);
+  assert.equal(ko.phase, "quarters");
+  assert.equal(ko.quarters.length, 4);
+  const confrontos = ko.quarters.map(t => [t.teamAId, t.teamBId].join("×"));
+  assert.deepEqual(confrontos, ["A1×A4", "A2×A3", "B1×B4", "B2×B3"]);
+  // mando do melhor (teamAId é o mandante e melhor colocado)
+  assert.equal(ko.quarters[0].leg.homeTeamId, "A1");
+  assert.equal(ko.quarters[2].leg.homeTeamId, "B1");
+});
+
+test("semis são ida e volta; final é jogo único", () => {
+  const ko = createCariocaKnockout(QUAL);
+  const rng = createRng(1);
+  // quartas: mandantes (melhores) vencem
+  for (const t of ko.quarters) playSingle(ko, t, rng, 2, 0);
+  assert.ok(advanceCariocaKnockout(ko), "avança pras semis");
+  assert.equal(ko.phase, "semis");
+  assert.equal(ko.semis.length, 2);
+  for (const s of ko.semis) assert.equal(s.legs.length, 2, "semi tem 2 legs (ida e volta)");
+
+  // semis: decide por agregado (teamA manda na volta)
+  for (const s of ko.semis) {
+    const [l1, l2] = s.legs;
+    l1.played = true; l1.score = { home: 0, away: 1 }; // teamA (visitante) faz 1
+    l2.played = true; l2.score = { home: 2, away: 0 }; // teamA (mandante) faz 2
+    applyCariocaKnockoutResult(ko, l2, rng);
+  }
+  assert.ok(advanceCariocaKnockout(ko), "avança pra final");
+  assert.equal(ko.phase, "final");
+  assert.ok(ko.final.leg, "final é jogo único");
+  assert.equal(ko.final.legs, undefined, "final não tem 2 legs");
+});
+
+test("progressão completa até campeão", () => {
+  const ko = createCariocaKnockout(QUAL);
+  const rng = createRng(2);
+  for (const t of ko.quarters) playSingle(ko, t, rng, 3, 0);
+  advanceCariocaKnockout(ko);
+  for (const s of ko.semis) {
+    s.legs[0].played = true; s.legs[0].score = { home: 1, away: 1 };
+    s.legs[1].played = true; s.legs[1].score = { home: 2, away: 0 };
+    applyCariocaKnockoutResult(ko, s.legs[1], rng);
+  }
+  advanceCariocaKnockout(ko);
+  playSingle(ko, ko.final, rng, 1, 0);
+  assert.ok(advanceCariocaKnockout(ko), "conclui");
+  assert.equal(ko.phase, "done");
+  assert.ok(ko.champion, "tem campeão");
+  assert.equal(ko.final.winnerId, ko.champion);
+});
+
+test("semi empatada no agregado vai a pênaltis", () => {
+  const ko = createCariocaKnockout(QUAL);
+  const rng = createRng(3);
+  for (const t of ko.quarters) playSingle(ko, t, rng, 2, 0);
+  advanceCariocaKnockout(ko);
+  const s = ko.semis[0];
+  s.legs[0].played = true; s.legs[0].score = { home: 1, away: 1 };
+  s.legs[1].played = true; s.legs[1].score = { home: 1, away: 1 }; // agregado 2-2
+  applyCariocaKnockoutResult(ko, s.legs[1], rng);
+  assert.ok([s.teamAId, s.teamBId].includes(s.winnerId), "pênaltis decidem um vencedor");
+});
+
+test("getCariocaKnockoutLegs: quartas na R7, semis R8/R9, final R10", () => {
+  const ko = createCariocaKnockout(QUAL);
+  assert.equal(getCariocaKnockoutLegs(ko, CARIOCA_QUARTERS_ROUND).length, 4, "4 nas quartas");
+  assert.equal(getCariocaKnockoutLegs(ko, CARIOCA_SEMI_LEG1_ROUND).length, 0, "semis ainda não existem");
+  assert.equal(getCariocaKnockoutLegs(ko, 99).length, 0, "rodada sem jogo");
 });

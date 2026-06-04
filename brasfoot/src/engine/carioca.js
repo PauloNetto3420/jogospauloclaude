@@ -80,6 +80,159 @@ export function getCariocaQualified(phase1) {
   };
 }
 
+// -------------------- Mata-mata --------------------
+// Rodadas ocupadas: 1ª fase 1..6 · quartas 7 · semis ida 8, volta 9 · final 10
+export const CARIOCA_QUARTERS_ROUND = 7;
+export const CARIOCA_SEMI_LEG1_ROUND = 8;
+export const CARIOCA_SEMI_LEG2_ROUND = 9;
+export const CARIOCA_FINAL_ROUND = 10;
+export const CARIOCA_TOTAL_ROUNDS = 10;
+export const CARIOCA_CHAMPION_PRIZE = 4_000_000;
+
+// Cria o mata-mata. `qualified` = { A: [1º,2º,3º,4º], B: [...] }.
+// Quartas (jogo único, mando do melhor): 1A×4A, 2A×3A, 1B×4B, 2B×3B.
+// `seed` por time = posição global pra decidir mando nas fases seguintes
+// (melhor colocação de grupo, A antes de B em empate de posição).
+export function createCariocaKnockout(qualified) {
+  const seedOf = {};
+  // seed: 0..3 = 1º-4º do A, 4..7 = 1º-4º do B (A leva vantagem de mando)
+  qualified.A.forEach((id, i) => { seedOf[id] = i; });
+  qualified.B.forEach((id, i) => { seedOf[id] = 4 + i; });
+
+  const quarters = [
+    makeSingleTie("qfA1", qualified.A[0], qualified.A[3], CARIOCA_QUARTERS_ROUND), // 1A×4A
+    makeSingleTie("qfA2", qualified.A[1], qualified.A[2], CARIOCA_QUARTERS_ROUND), // 2A×3A
+    makeSingleTie("qfB1", qualified.B[0], qualified.B[3], CARIOCA_QUARTERS_ROUND), // 1B×4B
+    makeSingleTie("qfB2", qualified.B[1], qualified.B[2], CARIOCA_QUARTERS_ROUND), // 2B×3B
+  ];
+
+  return {
+    seedOf,
+    phase: "quarters",        // quarters | semis | final | done
+    quarters,
+    semis: [],
+    final: null,
+    champion: null,
+  };
+}
+
+// Avança o mata-mata quando a fase corrente termina. Retorna true se mudou.
+export function advanceCariocaKnockout(ko) {
+  if (ko.phase === "quarters") {
+    if (!ko.quarters.every(t => t.winnerId)) return false;
+    const w = ko.quarters.map(t => t.winnerId);
+    // Semis (ida e volta): cruza vencedores. qfA1×qfB2 e qfB1×qfA2.
+    ko.semis = [
+      makeTwoLegTie("sf0", bySeed(w[0], w[3], ko.seedOf), CARIOCA_SEMI_LEG1_ROUND, CARIOCA_SEMI_LEG2_ROUND),
+      makeTwoLegTie("sf1", bySeed(w[2], w[1], ko.seedOf), CARIOCA_SEMI_LEG1_ROUND, CARIOCA_SEMI_LEG2_ROUND),
+    ];
+    ko.phase = "semis";
+    return true;
+  }
+  if (ko.phase === "semis") {
+    if (!ko.semis.every(t => t.winnerId)) return false;
+    const [a, b] = ko.semis.map(t => t.winnerId);
+    // Final (jogo único): mando do melhor seed (preferencialmente Maracanã).
+    const [homeId, awayId] = bySeed(a, b, ko.seedOf);
+    ko.final = makeSingleTie("final", homeId, awayId, CARIOCA_FINAL_ROUND);
+    ko.phase = "final";
+    return true;
+  }
+  if (ko.phase === "final") {
+    if (!ko.final.winnerId) return false;
+    ko.champion = ko.final.winnerId;
+    ko.phase = "done";
+    return true;
+  }
+  return false;
+}
+
+// Aplica resultado de um leg. Jogo único (quartas/final) → empate vai a
+// pênaltis. Semis (2 legs) → decide pelo agregado.
+export function applyCariocaKnockoutResult(ko, leg, rng) {
+  // jogo único: quartas ou final
+  let tie = ko.quarters.find(t => t.leg?.id === leg.id);
+  if (!tie && ko.final?.leg?.id === leg.id) tie = ko.final;
+  if (tie) {
+    const { home, away } = leg.score;
+    if (home > away) tie.winnerId = leg.homeTeamId;
+    else if (away > home) tie.winnerId = leg.awayTeamId;
+    else tie.winnerId = rng.chance(0.5) ? leg.homeTeamId : leg.awayTeamId; // pênaltis
+    return;
+  }
+  // semis (ida e volta)
+  const semi = ko.semis.find(t => t.legs?.some(l => l.id === leg.id));
+  if (semi) {
+    const [l1, l2] = semi.legs;
+    if (!l1.played || !l2.played) return;
+    // teamA = melhor seed (manda na volta = leg2)
+    const aTotal = l1.score.away + l2.score.home;
+    const bTotal = l1.score.home + l2.score.away;
+    if (aTotal > bTotal) semi.winnerId = semi.teamAId;
+    else if (bTotal > aTotal) semi.winnerId = semi.teamBId;
+    else semi.winnerId = rng.chance(0.5) ? semi.teamAId : semi.teamBId; // pênaltis
+    semi.aggregate = { teamA: aTotal, teamB: bTotal };
+  }
+}
+
+// Legs do mata-mata agendados pra uma rodada (pra pré-temporada).
+export function getCariocaKnockoutLegs(ko, round) {
+  const out = [];
+  if (round === CARIOCA_QUARTERS_ROUND) {
+    for (const t of ko.quarters) if (t.leg && !t.leg.played) out.push({ leg: t.leg, tie: t, kind: "qf" });
+  } else if (round === CARIOCA_SEMI_LEG1_ROUND || round === CARIOCA_SEMI_LEG2_ROUND) {
+    for (const t of ko.semis) for (const l of t.legs) if (!l.played && l.round === round) out.push({ leg: l, tie: t, kind: "sf" });
+  } else if (ko.final && round === CARIOCA_FINAL_ROUND) {
+    if (!ko.final.leg.played) out.push({ leg: ko.final.leg, tie: ko.final, kind: "final" });
+  }
+  return out;
+}
+
+// -------------------- helpers do mata-mata --------------------
+
+// Ordena [a,b] pelo seed (menor = melhor). Retorna [melhor, pior].
+function bySeed(a, b, seedOf) {
+  return seedOf[a] <= seedOf[b] ? [a, b] : [b, a];
+}
+
+// Tie de jogo único; mando do melhor (homeId já é o mandante).
+function makeSingleTie(tag, homeId, awayId, round) {
+  return {
+    id: `cario_${tag}`,
+    teamAId: homeId, teamBId: awayId,
+    leg: makeKoLeg(`${tag}`, homeId, awayId, round),
+    winnerId: null,
+  };
+}
+
+// Tie de ida e volta. `[bestId, otherId]` já ordenado por seed.
+// teamA (melhor) joga a VOLTA em casa.
+function makeTwoLegTie(tag, [bestId, otherId], r1, r2) {
+  return {
+    id: `cario_${tag}`,
+    teamAId: bestId, teamBId: otherId,
+    legs: [
+      makeKoLeg(`${tag}1`, otherId, bestId, r1), // ida na casa do "outro"
+      makeKoLeg(`${tag}2`, bestId, otherId, r2), // volta na casa do melhor
+    ],
+    aggregate: null,
+    winnerId: null,
+  };
+}
+
+function makeKoLeg(tag, homeId, awayId, round) {
+  return {
+    id: `m_cario_${tag}`,
+    round,
+    homeTeamId: homeId,
+    awayTeamId: awayId,
+    played: false,
+    score: null,
+    events: [],
+    date: null,
+  };
+}
+
 // -------------------- helpers internos --------------------
 
 // Divide 12 ids em 2 grupos equilibrados: 2 grandes em cada, resto alternado.
