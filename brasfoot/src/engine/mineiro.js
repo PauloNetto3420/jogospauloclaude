@@ -95,6 +95,108 @@ export function getMineiroQualified(phase1) {
   return four.map(s => s.teamId);
 }
 
+// -------------------- Mata-mata --------------------
+// Sem quartas: os 4 vão direto à semi. Rodadas: semi ida 13, volta 14, final 15.
+export const MINEIRO_SEMI_LEG1_ROUND = 13;
+export const MINEIRO_SEMI_LEG2_ROUND = 14;
+export const MINEIRO_FINAL_ROUND = 15;
+export const MINEIRO_TOTAL_ROUNDS = 15;
+export const MINEIRO_CHAMPION_PRIZE = 4_000_000;
+
+// Cria o mata-mata a partir dos 4 classificados (ordenados por campanha,
+// índice 0 = melhor). Semis: 1×4 e 2×3 (ida e volta, melhor manda na volta).
+export function createMineiroKnockout(qualified) {
+  const seedOf = {};
+  qualified.forEach((id, i) => { seedOf[id] = i; });
+  const semis = [
+    makeTwoLegTie("sf0", qualified[0], qualified[3]), // 1×4
+    makeTwoLegTie("sf1", qualified[1], qualified[2]), // 2×3
+  ];
+  return { seedOf, phase: "semis", semis, final: null, champion: null };
+}
+
+// Avança o mata-mata quando a fase corrente termina. Retorna true se mudou.
+export function advanceMineiroKnockout(ko) {
+  if (ko.phase === "semis") {
+    if (!ko.semis.every(t => t.winnerId)) return false;
+    const [a, b] = ko.semis.map(t => t.winnerId);
+    // Final: jogo único, mando do melhor seed (tradicional Mineirão).
+    const homeId = ko.seedOf[a] <= ko.seedOf[b] ? a : b;
+    const awayId = homeId === a ? b : a;
+    ko.final = makeSingleTie("final", homeId, awayId, MINEIRO_FINAL_ROUND);
+    ko.phase = "final";
+    return true;
+  }
+  if (ko.phase === "final") {
+    if (!ko.final.winnerId) return false;
+    ko.champion = ko.final.winnerId;
+    ko.phase = "done";
+    return true;
+  }
+  return false;
+}
+
+// Aplica resultado de um leg. Semis (2 legs) → agregado. Final (único) →
+// empate vai a pênaltis.
+export function applyMineiroKnockoutResult(ko, leg, rng) {
+  // final (jogo único)
+  if (ko.final && ko.final.leg?.id === leg.id) {
+    const { home, away } = leg.score;
+    if (home > away) ko.final.winnerId = leg.homeTeamId;
+    else if (away > home) ko.final.winnerId = leg.awayTeamId;
+    else ko.final.winnerId = rng.chance(0.5) ? leg.homeTeamId : leg.awayTeamId; // pênaltis
+    return;
+  }
+  // semis (ida e volta)
+  const semi = ko.semis.find(t => t.legs?.some(l => l.id === leg.id));
+  if (semi) {
+    const [l1, l2] = semi.legs;
+    if (!l1.played || !l2.played) return;
+    const aTotal = l1.score.away + l2.score.home;  // teamA manda na volta (leg2)
+    const bTotal = l1.score.home + l2.score.away;
+    if (aTotal > bTotal) semi.winnerId = semi.teamAId;
+    else if (bTotal > aTotal) semi.winnerId = semi.teamBId;
+    else semi.winnerId = rng.chance(0.5) ? semi.teamAId : semi.teamBId; // pênaltis
+    semi.aggregate = { teamA: aTotal, teamB: bTotal };
+  }
+}
+
+// Legs do mata-mata agendados pra uma rodada (pra pré-temporada).
+export function getMineiroKnockoutLegs(ko, round) {
+  const out = [];
+  if (round === MINEIRO_SEMI_LEG1_ROUND || round === MINEIRO_SEMI_LEG2_ROUND) {
+    for (const t of ko.semis) for (const l of t.legs) if (!l.played && l.round === round) out.push({ leg: l, tie: t, kind: "sf" });
+  } else if (ko.final && round === MINEIRO_FINAL_ROUND) {
+    if (!ko.final.leg.played) out.push({ leg: ko.final.leg, tie: ko.final, kind: "final" });
+  }
+  return out;
+}
+
+// -------------------- helpers do mata-mata --------------------
+
+// Tie de jogo único (final); mando já definido.
+function makeSingleTie(tag, homeId, awayId, round) {
+  return { id: `mineko_${tag}`, teamAId: homeId, teamBId: awayId, leg: makeKoLeg(tag, homeId, awayId, round), winnerId: null };
+}
+
+// Tie ida e volta (semi). teamA = melhor seed, joga a VOLTA em casa.
+function makeTwoLegTie(tag, bestId, otherId) {
+  return {
+    id: `mineko_${tag}`,
+    teamAId: bestId, teamBId: otherId,
+    legs: [
+      makeKoLeg(`${tag}1`, otherId, bestId, MINEIRO_SEMI_LEG1_ROUND), // ida na casa do outro
+      makeKoLeg(`${tag}2`, bestId, otherId, MINEIRO_SEMI_LEG2_ROUND), // volta na casa do melhor
+    ],
+    aggregate: null,
+    winnerId: null,
+  };
+}
+
+function makeKoLeg(tag, homeId, awayId, round) {
+  return { id: `m_mineko_${tag}`, round, homeTeamId: homeId, awayTeamId: awayId, played: false, score: null, events: [], date: null };
+}
+
 // -------------------- helpers internos --------------------
 
 // Comparador de "campanha": pontos desc, SG desc, GP desc.

@@ -10,8 +10,13 @@ import { runRound } from "../src/engine/season.js";
 import {
   createMineiroPhase1, getMineiroGroupStandings, getMineiroQualified,
   MINEIRO_GROUP_ROUNDS,
+  createMineiroKnockout, advanceMineiroKnockout, applyMineiroKnockoutResult,
+  getMineiroKnockoutLegs,
+  MINEIRO_SEMI_LEG1_ROUND, MINEIRO_SEMI_LEG2_ROUND, MINEIRO_FINAL_ROUND,
 } from "../src/engine/mineiro.js";
 import { makeState } from "./helpers.js";
+
+const QUAL = ["S1", "S2", "S3", "S4"]; // 4 classificados, S1 = melhor campanha
 
 const IDS = Array.from({ length: 12 }, (_, i) => "T" + i);
 
@@ -129,4 +134,58 @@ test("determinismo: mesma seed → mesmos grupos e fixtures", () => {
       p.fixtures.map(m => `${m.round}:${m.homeTeamId}-${m.awayTeamId}`).join(";");
   };
   assert.equal(dump(), dump());
+});
+
+// -------------------- Mata-mata --------------------
+
+test("semis: chaveamento 1×4 e 2×3 (ida e volta), sem quartas", () => {
+  const ko = createMineiroKnockout(QUAL);
+  assert.equal(ko.phase, "semis");
+  assert.equal(ko.semis.length, 2);
+  const conf = ko.semis.map(t => [t.teamAId, t.teamBId].join("×"));
+  assert.deepEqual(conf, ["S1×S4", "S2×S3"]);
+  for (const s of ko.semis) assert.equal(s.legs.length, 2, "semi é ida e volta");
+});
+
+test("progressão semis → final (jogo único) → campeão", () => {
+  const ko = createMineiroKnockout(QUAL);
+  const rng = createRng(1);
+  // semis: teamA (melhor) vence no agregado
+  for (const s of ko.semis) {
+    s.legs[0].played = true; s.legs[0].score = { home: 0, away: 1 }; // teamA visitante faz 1
+    s.legs[1].played = true; s.legs[1].score = { home: 2, away: 0 }; // teamA mandante faz 2
+    applyMineiroKnockoutResult(ko, s.legs[1], rng);
+  }
+  assert.ok(advanceMineiroKnockout(ko), "avança pra final");
+  assert.equal(ko.phase, "final");
+  assert.ok(ko.final.leg, "final é jogo único");
+  assert.equal(ko.final.legs, undefined);
+
+  ko.final.leg.played = true; ko.final.leg.score = { home: 1, away: 0 };
+  applyMineiroKnockoutResult(ko, ko.final.leg, rng);
+  assert.ok(advanceMineiroKnockout(ko), "conclui");
+  assert.equal(ko.phase, "done");
+  assert.equal(ko.champion, ko.final.leg.homeTeamId, "mandante campeão");
+});
+
+test("final empatada vai a pênaltis", () => {
+  const ko = createMineiroKnockout(QUAL);
+  const rng = createRng(2);
+  for (const s of ko.semis) {
+    s.legs[0].played = true; s.legs[0].score = { home: 1, away: 0 };
+    s.legs[1].played = true; s.legs[1].score = { home: 1, away: 0 };
+    applyMineiroKnockoutResult(ko, s.legs[1], rng);
+  }
+  advanceMineiroKnockout(ko);
+  ko.final.leg.played = true; ko.final.leg.score = { home: 1, away: 1 }; // empate
+  applyMineiroKnockoutResult(ko, ko.final.leg, rng);
+  assert.ok([ko.final.teamAId, ko.final.teamBId].includes(ko.final.winnerId), "pênaltis decidem");
+});
+
+test("getMineiroKnockoutLegs: semis em R13/R14, final R15", () => {
+  const ko = createMineiroKnockout(QUAL);
+  assert.equal(getMineiroKnockoutLegs(ko, MINEIRO_SEMI_LEG1_ROUND).length, 2, "2 idas na R13");
+  assert.equal(getMineiroKnockoutLegs(ko, MINEIRO_SEMI_LEG2_ROUND).length, 2, "2 voltas na R14");
+  assert.equal(getMineiroKnockoutLegs(ko, MINEIRO_FINAL_ROUND).length, 0, "final ainda não existe");
+  assert.equal(getMineiroKnockoutLegs(ko, 99).length, 0);
 });
