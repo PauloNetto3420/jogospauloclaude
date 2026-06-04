@@ -145,6 +145,18 @@ export function applyMatchEffects(state, result, competitionId) {
       const p = state.players[lineupEntry.id];
       if (!p) continue;
 
+      // Presença (apps): registra o jogo na ficha da temporada/competição.
+      // É a base do histórico de carreira (player.career, consolidado no fim
+      // da temporada). Sem isso, "Jogos" ficava sempre em 0.
+      {
+        const season = state.season;
+        p.stats[season] = p.stats[season] || {};
+        const st = p.stats[season][competitionId] = p.stats[season][competitionId] || {
+          apps: 0, goals: 0, assists: 0, avgRating: 0,
+        };
+        st.apps += 1;
+      }
+
       // Conta eventos pessoais deste jogador
       let goals = 0, yellows = 0, reds = 0, gotInjured = false;
       for (const ev of result.events) {

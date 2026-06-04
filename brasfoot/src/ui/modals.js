@@ -16,6 +16,7 @@ import { fmt, ovrClass, teamLogo } from "./format.js";
 import { CUP_PHASE_META } from "../engine/cup.js";
 import { getEstadualGroupComps } from "../engine/estadual.js";
 import { getRenewalExpectation } from "../engine/transfers.js";
+import { getCareerTotals } from "../models/player.js";
 
 // -------------------- Registry de ações (callbacks externos) --------------------
 let _actions = { onBid: null };
@@ -78,6 +79,14 @@ export function openPlayerDetail(playerId) {
   }).join("") || `<span style="color:var(--muted);font-size:12px">Sem características especiais</span>`;
 
   const history = (p.history || []).slice(-5).reverse();
+
+  // Carreira: temporadas já consolidadas (mais recente primeiro) + totais.
+  // A temporada corrente ainda não está em p.career, então é somada à parte.
+  const career = (p.career || []).slice().sort((a, b) => b.season - a.season);
+  const careerPast = getCareerTotals(p);
+  const careerApps = careerPast.apps + totalApps;
+  const careerGoals = careerPast.goals + totalGoals;
+
   const avatarBg = team ? team.colors.primary : "var(--panel-2)";
   const avatarFg = team ? team.colors.secondary : "var(--text)";
 
@@ -145,6 +154,34 @@ export function openPlayerDetail(playerId) {
           <div><span class="lbl">Amarelos</span><span class="val">${yellowsTotal}</span></div>
         </div>
       </div>
+
+      ${(career.length || careerApps) ? `
+        <div class="modal-section">
+          <h4>Carreira</h4>
+          <div class="info-grid" style="margin-bottom:10px">
+            <div><span class="lbl">Jogos na carreira</span><span class="val">${careerApps}</span></div>
+            <div><span class="lbl">Gols na carreira</span><span class="val" style="color:var(--accent)">${careerGoals}</span></div>
+            <div><span class="lbl">Média gols/jogo</span><span class="val">${careerApps ? (careerGoals / careerApps).toFixed(2) : "0.00"}</span></div>
+            <div><span class="lbl">Temporadas</span><span class="val">${careerPast.seasons + (totalApps ? 1 : 0)}</span></div>
+          </div>
+          ${career.length ? `
+            <table>
+              <thead><tr><th>Temp.</th><th>Clube</th><th>Idade</th><th>Jogos</th><th>Gols</th></tr></thead>
+              <tbody>
+                ${career.map(c => `
+                  <tr>
+                    <td><b>${c.season}</b></td>
+                    <td><span style="margin-right:6px">${teamLogo(c.teamId, 16)}</span>${state.teams[c.teamId]?.shortName ?? "—"}</td>
+                    <td>${c.age}</td>
+                    <td>${c.apps}</td>
+                    <td><b style="color:var(--accent)">${c.goals}</b></td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          ` : `<div style="font-size:12px;color:var(--muted)">Primeira temporada em andamento — o resumo aparece ao virar o ano.</div>`}
+        </div>
+      ` : ""}
 
       <div class="modal-section">
         <h4>Contrato e Mercado</h4>
