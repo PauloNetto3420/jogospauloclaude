@@ -18,7 +18,7 @@ import { generateSeasonalYouth, promoteProspect, sellProspect, releaseProspect }
 import { pickAITrainingFocus } from "./engine/training.js";
 import { createEstaduais, getEstadualMatchesForRound } from "./engine/estadual.js";
 import { saveGame, listSaves, deleteSave } from "./db.js";
-import { SERIE_A_SEED, SERIE_B_SEED, SERIE_C_SEED } from "../data/teams.seed.js";
+import { SERIE_A_SEED, SERIE_B_SEED, SERIE_C_SEED, SERIE_D_SEED } from "../data/teams.seed.js";
 import { state, rng, setState, setRng, ui } from "./core/store.js";
 import { fmt, ovrClass, teamLogo } from "./ui/format.js";
 import { applyTeamTheme } from "./ui/theme.js";
@@ -274,8 +274,9 @@ async function startGame(teamId) {
     settings: { difficulty: "normal", language: "pt-BR", seed },
   });
 
-  // Cria todos os 60 times (Série A + B + C) e seus elencos
-  for (const seed of [...SERIE_A_SEED, ...SERIE_B_SEED, ...SERIE_C_SEED]) {
+  // Cria todos os times e seus elencos. A/B/C (60) disputam o nacional;
+  // os 5 da Série D são paulistas que só entram no Campeonato Paulista.
+  for (const seed of [...SERIE_A_SEED, ...SERIE_B_SEED, ...SERIE_C_SEED, ...SERIE_D_SEED]) {
     const team = createTeam(seed);
     for (const p of generateSquad(rng, team)) {
       state.players[p.id] = p;

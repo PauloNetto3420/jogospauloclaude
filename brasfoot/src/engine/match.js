@@ -193,17 +193,23 @@ export function createMatchSimulator({ homeTeam, awayTeam, playersById, rng }) {
   const homeXI = pickStartingXI(homeTeam, playersById);
   const awayXI = pickStartingXI(awayTeam, playersById);
 
-  // Forfeit: time não consegue escalar minimamente
+  // Forfeit: time não consegue escalar minimamente.
+  // Expõe a MESMA interface do simulador normal (score/events/stats como
+  // getters) pra que qualquer consumidor — inclusive o painel de jogos
+  // paralelos da tela ao vivo — funcione sem checar isForfeit.
   if (homeXI.length < 7 || awayXI.length < 7) {
     const forfeitResult = forfeit(homeTeam, awayTeam, homeXI, awayXI);
     return {
       isForfeit: true, forfeitResult,
       minute: 90,
+      get score()  { return forfeitResult.score; },
+      get events() { return forfeitResult.events; },
+      get stats()  { return forfeitResult.stats; },
       isFinished: () => true,
       tick: () => [],
       substitute: () => ({ ok: false, message: "W.O." }),
       closeWindow: () => {},
-      canSubstitute: () => ({ subsLeft: 0, windowsLeft: 0, onField: [], bench: [] }),
+      canSubstitute: () => ({ subsLeft: 0, windowsLeft: 0, subsUsed: 0, windowsUsed: 0, onField: [], bench: [] }),
       getResult: () => forfeitResult,
     };
   }
