@@ -19,6 +19,7 @@ import { pickAITrainingFocus } from "./engine/training.js";
 import { createEstaduais, getEstadualMatchesForRound } from "./engine/estadual.js";
 import { initManager } from "./engine/manager.js";
 import { assignBoardObjective, computeConfidence } from "./engine/board.js";
+import { seedInitialRanking } from "./engine/ranking.js";
 import { saveGame, listSaves, deleteSave } from "./db.js";
 import { SERIE_A_SEED, SERIE_B_SEED, SERIE_C_SEED, SERIE_D_SEED } from "../data/teams.seed.js";
 import { state, rng, setState, setRng, ui } from "./core/store.js";
@@ -190,6 +191,7 @@ function loadIntoState(save) {
   // Retrocompat: saves anteriores às Metas da Diretoria não têm treinador/meta.
   if (!state.manager) initManager(state, ui.myTeamId);
   if (!state.teams[ui.myTeamId].board) assignBoardObjective(state, ui.myTeamId);
+  if (!state.rncLog) seedInitialRanking(state);
 
   applyTeamTheme(state.teams[ui.myTeamId].colors);
 
@@ -349,6 +351,9 @@ async function startGame(teamId) {
   initManager(state, ui.myTeamId);
   assignBoardObjective(state, ui.myTeamId);
   announceBoardObjective(state);
+
+  // Ranking Nacional de Clubes: semente inicial baseada na reputação
+  seedInitialRanking(state);
 
   try { await saveGame(state); } catch (e) { console.warn("Save inicial falhou:", e); }
 

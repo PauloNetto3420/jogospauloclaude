@@ -9,10 +9,12 @@ import {
   getHistory, summarizeClubTitles, totalClubTitles,
   getGoldenBootRoll, getMostDecoratedTeams, competitionLabel,
 } from "../../engine/history.js";
+import { computeRanking, currentDivisionLabel } from "../../engine/ranking.js";
 
 const TABS = [
   { id: "club", label: "🏆 Meus Títulos" },
   { id: "manager", label: "🧑‍💼 Treinador" },
+  { id: "ranking", label: "📈 Ranking Nacional" },
   { id: "seasons", label: "📜 Mural de Campeões" },
   { id: "scorers", label: "👟 Chuteiras de Ouro" },
 ];
@@ -33,8 +35,43 @@ export function renderHistory() {
     </div>
     ${tab === "club" ? renderClubGallery()
       : tab === "manager" ? renderManager()
+      : tab === "ranking" ? renderRanking()
       : tab === "seasons" ? renderChampionsWall()
       : renderGoldenBoots()}
+  `;
+}
+
+// -------------------- Ranking Nacional de Clubes --------------------
+function renderRanking() {
+  const ranking = computeRanking(state);
+  if (!ranking.length) return emptyCard("Ranking ainda não calculado. Ele se forma ao longo das temporadas. 📈");
+
+  const divColor = (lbl) => lbl === "Série A" ? "var(--accent)"
+    : lbl === "Série B" ? "var(--accent-2)"
+    : lbl === "Série C" ? "var(--warning)" : "var(--muted)";
+
+  return `
+    <div class="card">
+      <h3>Ranking Nacional de Clubes · top 40</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
+        Pontos acumulados nas últimas temporadas (liga, Copa do Brasil e estaduais), com peso maior para as recentes. Clubes fora de A/B/C destacam-se como candidatos à Série D.
+      </div>
+      <table>
+        <thead><tr><th>#</th><th>Clube</th><th>Divisão</th><th>Pontos</th></tr></thead>
+        <tbody>
+          ${ranking.slice(0, 40).map((r, i) => {
+            const div = currentDivisionLabel(state, r.teamId);
+            return `
+              <tr class="${r.teamId === ui.myTeamId ? "highlight" : ""}">
+                <td>${i + 1}</td>
+                <td><span style="margin-right:8px">${teamLogo(r.teamId, 18)}</span>${state.teams[r.teamId]?.name ?? "?"}</td>
+                <td style="color:${divColor(div)};font-size:12px;font-weight:600">${div}</td>
+                <td><b style="color:var(--accent)">${r.points}</b></td>
+              </tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
   `;
 }
 

@@ -17,6 +17,7 @@ import { processSeasonEndAcademy, generateSeasonalYouth } from "./academy.js";
 import { recordSeasonHistory } from "./history.js";
 import { evaluateObjective } from "./board.js";
 import { updateManagerAfterSeason, decideDismissal } from "./manager.js";
+import { awardSeasonRankingPoints } from "./ranking.js";
 
 const NEW_FREE_AGENTS_PER_SEASON = 25;
 
@@ -89,6 +90,10 @@ export function endSeason(state, rng) {
   // 2.5 Snapshot do histórico ANTES de recriar competições (senão perde
   //     standings finais e artilheiros da temporada que terminou).
   recordSeasonHistory(state, report);
+
+  // 2.55 Pontos do Ranking Nacional de Clubes (também antes da recriação —
+  //      depende de standings, copa e estaduais da temporada que terminou).
+  awardSeasonRankingPoints(state, report);
 
   // 2.6 Consolida a carreira de cada jogador (1 linha/temporada) ANTES do
   //     envelhecimento — age/overall/teamId refletem a temporada que terminou.
