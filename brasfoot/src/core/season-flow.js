@@ -32,7 +32,10 @@ import {
 import { applyTraining, TRAINING_FOCI } from "../engine/training.js";
 import { validateLineup, autoLineup } from "../engine/lineup-helpers.js";
 import { saveGame } from "../db.js";
-import { showCupDrawModal, showEstadualDrawModal, showPenaltyShootoutModal, showSeasonRecapModal } from "../ui/modals.js";
+import { showCupDrawModal, showEstadualDrawModal, showPenaltyShootoutModal, showSeasonRecapModal, showJobOffersModal } from "../ui/modals.js";
+import { assignBoardObjective, findNationalCompId } from "../engine/board.js";
+import { generateJobOffers, generatePoachOffers, acceptJob } from "../engine/manager.js";
+import { applyTeamTheme } from "../ui/theme.js";
 import { playMatchOnScreen } from "../ui/match-screen.js";
 import { applyCupLegToState, applyEstadualMatchResult } from "./match-apply.js";
 
@@ -818,12 +821,131 @@ function showSeasonRecap(report) {
       relegatedToC: report.relegatedToC || [],
       retiredCount: report.retired.length,
       freeAgentsCount: report.freeAgents.length,
-    }, () => render());
+    }, () => handleBoardTransition(report));
   } catch (e) {
     console.error("Erro no showSeasonRecap:", e);
     const fallback = resolveUserCompetition();
     if (fallback) { ui.myCompId = fallback; ui.standingsView = ui.myCompId; }
   }
+}
+
+// =====================================================================
+// Diretoria & Carreira do Treinador — transição entre temporadas
+// =====================================================================
+
+// Após o resumo da temporada: anuncia o veredito da meta, conduz eventual
+// demissão (propostas de emprego) ou assédio de clubes maiores, e por fim
+// define a meta da nova temporada.
+function handleBoardTransition(report) {
+  const outcome = report.boardOutcome;
+  if (!outcome || !state.manager) { assignAndAnnounceNewObjective(); render(); return; }
+
+  announceBoardVerdict(outcome);
+
+  if (outcome.dismissal?.fired) {
+    // Demitido: precisa escolher um novo clube (sempre há ao menos 1 proposta).
+    const offers = generateJobOffers(state, rng, { excludeTeamId: state.managedTeamId, max: 3 });
+    showJobOffersModal({
+      fired: true,
+      reason: outcome.dismissal.reason,
+      formerTeamId: state.managedTeamId,
+      offers,
+    }, (chosenId) => {
+      switchToTeam(chosenId || offers[0].teamId);
+      assignAndAnnounceNewObjective();
+      saveAndRender();
+    });
+    return;
+  }
+
+  if (outcome.evalResult?.exceeded) {
+    // Temporada brilhante: clubes maiores podem te assediar (opcional).
+    const poach = generatePoachOffers(state, rng, { currentTeamId: state.managedTeamId });
+    if (poach.length) {
+      showJobOffersModal({
+        fired: false,
+        formerTeamId: state.managedTeamId,
+        offers: poach,
+      }, (chosenId) => {
+        if (chosenId) switchToTeam(chosenId);
+        assignAndAnnounceNewObjective();
+        saveAndRender();
+      });
+      return;
+    }
+  }
+
+  assignAndAnnounceNewObjective();
+  render();
+}
+
+// Troca o clube gerenciado mantendo o mesmo mundo.
+function switchToTeam(teamId) {
+  acceptJob(state, teamId, state.season);
+  ui.myTeamId = teamId;
+  const cid = findNationalCompId(state, teamId) || resolveUserCompetition();
+  if (cid) { ui.myCompId = cid; ui.standingsView = cid; }
+  applyTeamTheme(state.teams[teamId].colors);
+  state.teams[teamId].lineup = autoLineup(state.teams[teamId]);
+  log(`📝 Você assumiu o ${state.teams[teamId].name}.`);
+}
+
+function assignAndAnnounceNewObjective() {
+  assignBoardObjective(state, state.managedTeamId);
+  announceBoardObjective(state);
+}
+
+async function saveAndRender() {
+  try { await saveGame(state); } catch (e) { console.warn("Save falhou:", e); }
+  render();
+}
+
+// Inbox: anuncia a meta da temporada para o clube gerenciado.
+export function announceBoardObjective(state) {
+  const team = state.teams[state.managedTeamId];
+  const board = team?.board;
+  if (!board?.objective) return;
+  state.inbox = state.inbox || [];
+  state.inbox.push({
+    id: `n_board_obj_${state.season}_${state.managedTeamId}`,
+    date: state.currentDate, type: "season", priority: "normal",
+    subject: `🎯 Meta da diretoria · ${state.season}: ${board.objective.label}`,
+    body: `A diretoria do ${team.name} estabeleceu como objetivo da temporada: ${board.objective.label}. Cumprir rende bônus e prestígio; fracassar pode custar o seu cargo.`,
+    read: false, teamFocus: state.managedTeamId,
+  });
+}
+
+// Inbox: anuncia o veredito da meta no fim da temporada.
+function announceBoardVerdict(outcome) {
+  const team = state.teams[outcome.teamId];
+  if (!team) return;
+  const ev = outcome.evalResult;
+  const repDelta = outcome.repInfo?.repDelta ?? 0;
+  const repStr = repDelta > 0 ? `+${repDelta}` : `${repDelta}`;
+  let tone, subject, body;
+  if (outcome.dismissal?.fired) {
+    tone = "high";
+    subject = `❌ Você foi demitido do ${team.name}`;
+    body = `Após ${outcome.dismissal.reason}, a diretoria decidiu pela sua saída. Reputação como treinador: ${state.manager.reputation} (${repStr}). Novos clubes podem procurá-lo.`;
+  } else if (ev?.exceeded) {
+    tone = "high";
+    subject = `🌟 Diretoria exalta sua temporada no ${team.name}`;
+    body = `Você superou a meta (${ev.label})${outcome.bonus ? ` e garantiu um bônus de R$ ${fmt(outcome.bonus)}` : ""}. Reputação: ${state.manager.reputation} (${repStr}).`;
+  } else if (ev?.met) {
+    tone = "normal";
+    subject = `✅ Meta cumprida no ${team.name}`;
+    body = `A diretoria aprovou sua campanha (${ev.label})${outcome.bonus ? ` — bônus de R$ ${fmt(outcome.bonus)}` : ""}. Reputação: ${state.manager.reputation} (${repStr}).`;
+  } else {
+    tone = "normal";
+    subject = `⚠️ Diretoria cobra mais no ${team.name}`;
+    body = `A meta (${ev?.label ?? "—"}) não foi cumprida. A diretoria mantém a confiança por ora. Reputação: ${state.manager.reputation} (${repStr}).`;
+  }
+  state.inbox = state.inbox || [];
+  state.inbox.push({
+    id: `n_board_verdict_${outcome.teamId}_${state.season}`,
+    date: state.currentDate, type: "season", priority: tone,
+    subject, body, read: false, teamFocus: outcome.teamId,
+  });
 }
 
 // Descobre em qual competição o time do usuário está participando agora.

@@ -15,6 +15,8 @@ import { evolvePlayer, generateFreeAgentBatch, rollUpPlayerSeason } from "../mod
 import { recalcExpenses } from "../models/team.js";
 import { processSeasonEndAcademy, generateSeasonalYouth } from "./academy.js";
 import { recordSeasonHistory } from "./history.js";
+import { evaluateObjective } from "./board.js";
+import { updateManagerAfterSeason, decideDismissal } from "./manager.js";
 
 const NEW_FREE_AGENTS_PER_SEASON = 25;
 
@@ -92,6 +94,21 @@ export function endSeason(state, rng) {
   //     envelhecimento — age/overall/teamId refletem a temporada que terminou.
   for (const player of Object.values(state.players)) {
     rollUpPlayerSeason(player, report.season);
+  }
+
+  // 2.7 Avalia a meta da diretoria (standings ainda intactos), atualiza a
+  //     reputação do treinador, paga bônus e decide demissão. O desfecho vai
+  //     no report para o showSeasonRecap conduzir a transição (propostas).
+  if (state.manager && state.managedTeamId) {
+    const evalResult = evaluateObjective(state, state.managedTeamId, report);
+    const repInfo = updateManagerAfterSeason(state, evalResult, report.season);
+    const dismissal = decideDismissal(evalResult);
+    let bonus = 0;
+    if (evalResult) {
+      bonus = evalResult.exceeded ? 12_000_000 : evalResult.met ? 6_000_000 : 0;
+      if (bonus > 0) state.teams[state.managedTeamId].finances.balance += bonus;
+    }
+    report.boardOutcome = { evalResult, dismissal, bonus, repInfo, teamId: state.managedTeamId };
   }
 
   // 3. Envelhecimento + aposentadoria

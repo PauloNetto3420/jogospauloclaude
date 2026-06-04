@@ -12,6 +12,7 @@ import {
 
 const TABS = [
   { id: "club", label: "🏆 Meus Títulos" },
+  { id: "manager", label: "🧑‍💼 Treinador" },
   { id: "seasons", label: "📜 Mural de Campeões" },
   { id: "scorers", label: "👟 Chuteiras de Ouro" },
 ];
@@ -31,8 +32,61 @@ export function renderHistory() {
       </div>
     </div>
     ${tab === "club" ? renderClubGallery()
+      : tab === "manager" ? renderManager()
       : tab === "seasons" ? renderChampionsWall()
       : renderGoldenBoots()}
+  `;
+}
+
+// -------------------- Carreira do Treinador --------------------
+function renderManager() {
+  const mgr = state.manager;
+  if (!mgr) return emptyCard("Perfil de treinador indisponível neste save.");
+
+  const repColor = mgr.reputation >= 70 ? "var(--accent)" : mgr.reputation >= 45 ? "var(--warning)" : "var(--danger)";
+  const titles = [...(mgr.titles || [])].sort((a, b) => b.season - a.season);
+  const jobs = [...(mgr.jobs || [])].slice().reverse();
+
+  return `
+    <div class="card" style="text-align:center;margin-bottom:16px">
+      <div style="font-size:13px;color:var(--muted);letter-spacing:.5px;text-transform:uppercase">Reputação como treinador</div>
+      <div style="font-size:42px;font-weight:800;color:${repColor};line-height:1.1;margin-top:4px">${mgr.reputation}</div>
+      <div style="font-size:12px;color:var(--muted)">${mgr.seasonsManaged} temporada${mgr.seasonsManaged === 1 ? "" : "s"} na carreira · ${(mgr.titles || []).length} título${(mgr.titles || []).length === 1 ? "" : "s"}</div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Clubes que você dirigiu</h3>
+        <table>
+          <thead><tr><th>Clube</th><th>De</th><th>Até</th></tr></thead>
+          <tbody>
+            ${jobs.map(j => `
+              <tr class="${j.toSeason == null ? "highlight" : ""}">
+                <td><span style="margin-right:6px">${teamLogo(j.teamId, 16)}</span>${state.teams[j.teamId]?.name ?? "?"}</td>
+                <td>${j.fromSeason}</td>
+                <td>${j.toSeason ?? "atual"}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h3>Galeria de títulos do treinador</h3>
+        ${titles.length ? `
+          <table>
+            <thead><tr><th>Temp.</th><th>Competição</th><th>Clube</th></tr></thead>
+            <tbody>
+              ${titles.map(t => `
+                <tr>
+                  <td><b>${t.season}</b></td>
+                  <td>${competitionLabel(t.competitionId)}</td>
+                  <td><span style="margin-right:6px">${teamLogo(t.teamId, 16)}</span>${state.teams[t.teamId]?.shortName ?? "—"}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        ` : `<div style="color:var(--muted);font-size:13px">Nenhum título ainda. Cumpra as metas e levante taças para crescer — clubes maiores começam a te procurar conforme sua reputação sobe.</div>`}
+      </div>
+    </div>
   `;
 }
 
