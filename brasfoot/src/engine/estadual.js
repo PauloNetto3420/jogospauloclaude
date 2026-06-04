@@ -48,8 +48,15 @@ import {
   applyBaianoKnockoutResult, getBaianoKnockoutLegs, getBaianoQualified,
   BAIANO_PHASE1_ROUNDS, BAIANO_TOTAL_ROUNDS, BAIANO_CHAMPION_PRIZE,
 } from "./baiano.js";
+import {
+  createCearensePhase1, createCearensePhase2, createCearenseKnockout,
+  advanceCearenseKnockout, applyCearenseKnockoutResult, getCearenseKnockoutLegs,
+  getCearenseQualified, getCearenseSemifinalists,
+  CEARENSE_PHASE1_ROUNDS, CEARENSE_PHASE2_ROUND_START, CEARENSE_PHASE2_ROUNDS,
+  CEARENSE_TOTAL_ROUNDS, CEARENSE_CHAMPION_PRIZE,
+} from "./cearense.js";
 
-export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA"];
+export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE"];
 
 const ESTADUAL_NAMES = {
   SP: "Campeonato Paulista",
@@ -58,6 +65,7 @@ const ESTADUAL_NAMES = {
   RS: "Campeonato Gaúcho",
   PR: "Campeonato Paranaense",
   BA: "Campeonato Baiano",
+  CE: "Campeonato Cearense",
 };
 
 // Cria todos os estaduais. Retorna o objeto meta (state.estaduais).
@@ -72,6 +80,7 @@ export function createEstaduais(state, season, rng) {
     if (uf === "RS") { estaduais.RS = createGauchoEstadual(state, season, rng); continue; }
     if (uf === "PR") { estaduais.PR = createParanaenseEstadual(state, season, rng); continue; }
     if (uf === "BA") { estaduais.BA = createBaianoEstadual(state, season, rng); continue; }
+    if (uf === "CE") { estaduais.CE = createCearenseEstadual(state, season, rng); continue; }
     const teamIds = Object.values(state.teams)
       .filter(t => t.state === uf)
       .map(t => t.id);
@@ -186,6 +195,27 @@ function createBaianoEstadual(state, season, rng) {
   };
 }
 
+// Campeonato Cearense (2 fases de grupos + mata-mata). 1ª fase 1..5,
+// 2ª fase 6..8, semis 9/10, final 11/12. format: "cearense".
+function createCearenseEstadual(state, season, rng) {
+  const phase1 = createCearensePhase1({ season, rng });
+  state.competitions.estadual_ce = phase1;
+  return {
+    uf: "CE",
+    name: ESTADUAL_NAMES.CE,
+    format: "cearense",
+    teams: [...phase1.teams],
+    phase: "groups",            // groups | second | semis | final | done
+    knockout: null,
+    champion: null,
+    prize: CEARENSE_CHAMPION_PRIZE,
+    schedule: {
+      groupRounds: CEARENSE_PHASE1_ROUNDS,   // 1..5
+      finalRound: CEARENSE_TOTAL_ROUNDS,     // 12
+    },
+  };
+}
+
 // Campeonato Paulista (formato suíço). Monta a 1ª fase a partir dos potes
 // oficiais e registra a competição. O mata-mata é criado quando a 1ª fase
 // termina (advanceEstadualPhase). Marcado com format: "paulista" pra que os
@@ -286,6 +316,7 @@ export function getEstadualMatchesForRound(state, estadual, round) {
   if (estadual.format === "gaucho") return getGauchoMatchesForRound(state, estadual, round);
   if (estadual.format === "paranaense") return getParanaenseMatchesForRound(state, estadual, round);
   if (estadual.format === "baiano") return getBaianoMatchesForRound(state, estadual, round);
+  if (estadual.format === "cearense") return getCearenseMatchesForRound(state, estadual, round);
 
   const out = [];
   // Grupos
@@ -330,6 +361,7 @@ export function advanceEstadualPhase(state, estadual, season, rng) {
   if (estadual.format === "gaucho") return advanceGauchoEstadual(state, estadual, season, rng);
   if (estadual.format === "paranaense") return advanceParanaenseEstadual(state, estadual, season, rng);
   if (estadual.format === "baiano") return advanceBaianoEstadual(state, estadual, season, rng);
+  if (estadual.format === "cearense") return advanceCearenseEstadual(state, estadual, season, rng);
 
   if (estadual.phase === "groups") {
     const groupsDone = estadual.groupIds.every(gid =>
@@ -441,6 +473,10 @@ export function applyEstadualKnockoutResult(estadual, leg, rng) {
   }
   if (estadual.format === "baiano") {
     applyBaianoKnockoutResult(estadual.knockout, leg, rng);
+    return;
+  }
+  if (estadual.format === "cearense") {
+    applyCearenseKnockoutResult(estadual.knockout, leg, rng);
     return;
   }
   // Encontra o tie
@@ -715,6 +751,63 @@ function advanceBaianoEstadual(state, estadual, season, rng) {
   const ko = estadual.knockout;
   if (!ko) return;
   advanceBaianoKnockout(ko);
+  estadual.phase = ko.phase;
+  if (ko.phase === "done" && ko.champion && !estadual.champion) {
+    estadual.champion = ko.champion;
+  }
+}
+
+// -------------------- Formato Cearense (bifurcações) --------------------
+
+// Jogos do Cearense numa rodada: 1ª fase (1..5, grupos intra), 2ª fase
+// (6..8, grupos cruzados), mata-mata (9..12, ida/volta).
+function getCearenseMatchesForRound(state, estadual, round) {
+  const out = [];
+  if (round <= CEARENSE_PHASE1_ROUNDS) {
+    const comp = state.competitions.estadual_ce;
+    if (comp) for (const m of comp.fixtures) {
+      if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_ce" });
+    }
+    return out;
+  }
+  if (round < CEARENSE_PHASE2_ROUND_START + CEARENSE_PHASE2_ROUNDS) {
+    const comp = state.competitions.estadual_ce_p2;
+    if (comp) for (const m of comp.fixtures) {
+      if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_ce_p2" });
+    }
+    return out;
+  }
+  if (!estadual.knockout) return out;
+  for (const entry of getCearenseKnockoutLegs(estadual.knockout, round)) {
+    const kind = entry.kind === "final" ? "final" : "semi";
+    out.push({ match: entry.leg, kind, tie: entry.tie });
+  }
+  return out;
+}
+
+// Avança o Cearense: 1ª fase → 2ª fase (novo grupo) → mata-mata.
+function advanceCearenseEstadual(state, estadual, season, rng) {
+  if (estadual.phase === "groups") {
+    const comp = state.competitions.estadual_ce;
+    if (comp && comp.fixtures.every(m => m.played)) {
+      const qualified = getCearenseQualified(comp);
+      state.competitions.estadual_ce_p2 = createCearensePhase2({ season, qualified });
+      estadual.phase = "second";
+    }
+    return;
+  }
+  if (estadual.phase === "second") {
+    const p2 = state.competitions.estadual_ce_p2;
+    if (p2 && p2.fixtures.every(m => m.played)) {
+      const semifinalists = getCearenseSemifinalists(p2);
+      estadual.knockout = createCearenseKnockout(semifinalists);
+      estadual.phase = "semis";
+    }
+    return;
+  }
+  const ko = estadual.knockout;
+  if (!ko) return;
+  advanceCearenseKnockout(ko);
   estadual.phase = ko.phase;
   if (ko.phase === "done" && ko.champion && !estadual.champion) {
     estadual.champion = ko.champion;

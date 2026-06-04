@@ -89,7 +89,7 @@ function playEstadualToEnd(state, estadual, rng) {
 
 test("createEstaduais: cria 1 estadual por UF oficial com seu formato", () => {
   const { state } = stateWithEstaduais();
-  const formatByUf = { SP: "paulista", RJ: "carioca", MG: "mineiro", RS: "gaucho", PR: "paranaense", BA: "baiano" };
+  const formatByUf = { SP: "paulista", RJ: "carioca", MG: "mineiro", RS: "gaucho", PR: "paranaense", BA: "baiano", CE: "cearense" };
   // Fase inicial: a maioria começa em "groups"; o Baiano é liga (turno único).
   const initialPhase = { baiano: "league" };
   for (const uf of ESTADUAL_STATES) {
@@ -111,6 +111,23 @@ test("UF de grupos com menos de 4 times não gera estadual", () => {
   }
   const es = createEstaduais(mini, 2026, rng);
   assert.equal(es.GO, undefined, "GO não é UF oficial — sem estadual");
+});
+
+// Integração do Cearense: o formato mais complexo (2 fases de grupos), dirigido
+// pelos helpers reais do estadual.js (getMatchesForRound + advanceEstadualPhase).
+test("Cearense: 1ª fase → 2ª fase (nova comp) → mata-mata → campeão", () => {
+  const { state, rng } = stateWithEstaduais();
+  const ce = state.estaduais.CE;
+  assert.equal(ce.format, "cearense");
+  assert.equal(ce.phase, "groups");
+
+  playEstadualToEnd(state, ce, rng);
+
+  assert.ok(state.competitions.estadual_ce_p2, "2ª fase foi criada em runtime");
+  assert.equal(state.competitions.estadual_ce_p2.fixtures.length, 9, "2ª fase tem 9 jogos");
+  assert.equal(ce.phase, "done", "chega ao fim");
+  assert.ok(ce.champion, "tem campeão");
+  assert.ok(ce.teams.includes(ce.champion), "campeão participou");
 });
 
 // Testes do FORMATO DE GRUPOS genérico (fallback), via createOneEstadual.
