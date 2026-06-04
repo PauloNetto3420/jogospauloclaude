@@ -68,10 +68,10 @@ export function openPlayerDetail(playerId) {
 
   const inAcademy = team?.academy?.prospects?.includes(p.id);
   const status =
-    inAcademy ? `<span class="badge" style="background:var(--accent-2);color:#fff">🌱 Da Base</span>` :
+    inAcademy ? `<span class="badge" style="background:var(--accent-2);color:var(--accent-2-fg)">🌱 Da Base</span>` :
     p.status.injury ? `<span class="badge badge-injury">Lesão · ${p.status.injury.weeksOut} sem</span>` :
     p.status.suspendedMatches > 0 ? `<span class="badge badge-suspended">Suspenso · ${p.status.suspendedMatches}j</span>` :
-    `<span class="badge" style="background:var(--accent);color:#000">Apto</span>`;
+    `<span class="badge" style="background:var(--accent);color:var(--accent-fg)">Apto</span>`;
 
   const traitChips = (p.traits || []).map(t => {
     const cls = POSITIVE_TRAITS.has(t) ? "positive" : NEGATIVE_TRAITS.has(t) ? "negative" : "";
@@ -770,7 +770,7 @@ export function showSeasonRecapModal(info, onContinue) {
         <span style="font-size:22px">🏆</span>
         ${teamLogo(teamId, 30)}
         <span style="font-weight:700;font-size:15px">${t.name}</span>
-        ${mine ? `<span class="badge" style="background:var(--accent);color:#000;margin-left:auto">VOCÊ</span>` : ""}
+        ${mine ? `<span class="badge" style="background:var(--accent);color:var(--accent-fg);margin-left:auto">VOCÊ</span>` : ""}
       </div>`;
   };
 

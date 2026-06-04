@@ -11,7 +11,7 @@
 
 import { state, ui, rng } from "./store.js";
 import { fmt } from "../ui/format.js";
-import { applyMatchResult, getCurrentRound, decrementSuspensions, getMatchesOfRound, recalcTopScorers } from "../engine/season.js";
+import { applyMatchResult, getCurrentRound, decrementSuspensions, recoverInjuries, getMatchesOfRound, recalcTopScorers } from "../engine/season.js";
 import { simulateMatch, createMatchSimulator } from "../engine/match.js";
 import { weeklyTick } from "../engine/finance.js";
 import { runAITransfers, generateIncomingOffers, generateTransferRequests, getTransferWindowStatus } from "../engine/transfers.js";
@@ -159,6 +159,9 @@ function finalizeEstadualRound(round) {
   if (myWages) {
     log(`Pré-temporada R${round}${myRev ? ` · bilheteria +R$ ${fmt(myRev.revenue)}` : ""} · folha -R$ ${fmt(myWages.wagesPaid)}.`);
   }
+
+  // Recuperação de lesões também roda na pré-temporada
+  recoverInjuries(state);
 
   // Avança fases de cada estadual (grupos→semis→final→campeão)
   for (const e of Object.values(state.estaduais || {})) {
@@ -425,8 +428,9 @@ async function closeWeek(round) {
   const myWages = tick.wages.find(w => w.teamId === ui.myTeamId);
   log(`Rodada ${round} fechada · ${myRev ? `bilheteria +R$ ${fmt(myRev.revenue)} · ` : ""}folha -R$ ${fmt(myWages.wagesPaid)}.`);
 
-  // Suspensões + IA de mercado (só durante janela)
+  // Suspensões + recuperação de lesões + IA de mercado (só durante janela)
   decrementSuspensions(state, allResults.flatMap(r => [r.homeTeamId, r.awayTeamId]));
+  recoverInjuries(state);
   const aiMoves = runAITransfers(state, rng, { excludeTeamId: ui.myTeamId, currentRound: round });
   for (const m of aiMoves) log(`🔁 ${m.message}`);
 
@@ -653,8 +657,9 @@ async function finalizeRound(round) {
   const myWages = tick.wages.find(w => w.teamId === ui.myTeamId);
   log(`Rodada ${round} fechada · ${myRev ? `bilheteria +R$ ${fmt(myRev.revenue)} · ` : ""}folha -R$ ${fmt(myWages.wagesPaid)}.`);
 
-  // 4. Suspensões + IA de mercado
+  // 4. Suspensões + recuperação de lesões + IA de mercado
   decrementSuspensions(state, allResults.flatMap(r => [r.homeTeamId, r.awayTeamId]));
+  recoverInjuries(state);
   const aiMoves = runAITransfers(state, rng, { excludeTeamId: ui.myTeamId });
   for (const m of aiMoves) log(`🔁 ${m.message}`);
 

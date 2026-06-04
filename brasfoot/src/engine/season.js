@@ -242,6 +242,24 @@ export function recalcTopScorers(competition, playersById) {
     .slice(0, 20);
 }
 
+// Recuperação de lesões: a cada semana (rodada) desconta 1 de weeksOut de
+// TODOS os jogadores lesionados; ao chegar a 0, o jogador volta a ficar apto.
+// Sem isto, lesões eram permanentes na temporada — os elencos esvaziavam e
+// times acabavam tomando W.O. por não conseguir escalar 7 jogadores.
+export function recoverInjuries(state) {
+  let healed = 0;
+  for (const p of Object.values(state.players)) {
+    const inj = p.status?.injury;
+    if (!inj) continue;
+    inj.weeksOut -= 1;
+    if (inj.weeksOut <= 0) {
+      p.status.injury = null;
+      healed++;
+    }
+  }
+  return healed;
+}
+
 // Após uma rodada, libera quem cumpriu suspensão (decrementa 1 jogo).
 // Chamado pelo caller depois de runRound, para os times que jogaram.
 export function decrementSuspensions(state, teamIds) {

@@ -161,7 +161,7 @@ function renderOneEstadual(e, isMine) {
     <div style="margin-bottom:8px;padding:8px 4px;border-left:3px solid ${isMine ? "var(--accent)" : "var(--border)"};padding-left:12px">
       <span style="font-weight:700;font-size:15px">${e.name}</span>
       <span style="color:var(--muted);font-size:12px;margin-left:8px">${phaseLabel}</span>
-      ${isMine ? `<span class="badge" style="background:var(--accent);color:#000;margin-left:8px">SEU TIME</span>` : ""}
+      ${isMine ? `<span class="badge" style="background:var(--accent);color:var(--accent-fg);margin-left:8px">SEU TIME</span>` : ""}
     </div>
     ${groupsHtml}
     ${koHtml}
@@ -206,7 +206,7 @@ function renderPaulista(e, isMine) {
     <div style="margin-bottom:8px;padding:8px 4px;border-left:3px solid ${isMine ? "var(--accent)" : "var(--border)"};padding-left:12px">
       <span style="font-weight:700;font-size:15px">${e.name}</span>
       <span style="color:var(--muted);font-size:12px;margin-left:8px">${phaseLabel}</span>
-      ${isMine ? `<span class="badge" style="background:var(--accent);color:#000;margin-left:8px">SEU TIME</span>` : ""}
+      ${isMine ? `<span class="badge" style="background:var(--accent);color:var(--accent-fg);margin-left:8px">SEU TIME</span>` : ""}
     </div>`;
 
   // Tabela única: top 8 (classificados) destacados, 2 últimos (rebaixados) em vermelho.
@@ -305,7 +305,7 @@ function renderCarioca(e, isMine) {
     <div style="margin-bottom:8px;padding:8px 4px;border-left:3px solid ${isMine ? "var(--accent)" : "var(--border)"};padding-left:12px">
       <span style="font-weight:700;font-size:15px">${e.name}</span>
       <span style="color:var(--muted);font-size:12px;margin-left:8px">${phaseLabel}</span>
-      ${isMine ? `<span class="badge" style="background:var(--accent);color:#000;margin-left:8px">SEU TIME</span>` : ""}
+      ${isMine ? `<span class="badge" style="background:var(--accent);color:var(--accent-fg);margin-left:8px">SEU TIME</span>` : ""}
     </div>`;
 
   // Dois grupos lado a lado (cada um filtra os standings da comp). Top 4 destacado.
@@ -361,7 +361,7 @@ function renderMineiro(e, isMine) {
     <div style="margin-bottom:8px;padding:8px 4px;border-left:3px solid ${isMine ? "var(--accent)" : "var(--border)"};padding-left:12px">
       <span style="font-weight:700;font-size:15px">${e.name}</span>
       <span style="color:var(--muted);font-size:12px;margin-left:8px">${phaseLabel}</span>
-      ${isMine ? `<span class="badge" style="background:var(--accent);color:#000;margin-left:8px">SEU TIME</span>` : ""}
+      ${isMine ? `<span class="badge" style="background:var(--accent);color:var(--accent-fg);margin-left:8px">SEU TIME</span>` : ""}
     </div>`;
 
   // Três grupos lado a lado. Líder de cada um classifica; o melhor 2º também.
@@ -412,7 +412,7 @@ function renderGaucho(e, isMine) {
     <div style="margin-bottom:8px;padding:8px 4px;border-left:3px solid ${isMine ? "var(--accent)" : "var(--border)"};padding-left:12px">
       <span style="font-weight:700;font-size:15px">${e.name}</span>
       <span style="color:var(--muted);font-size:12px;margin-left:8px">${phaseLabel}</span>
-      ${isMine ? `<span class="badge" style="background:var(--accent);color:#000;margin-left:8px">SEU TIME</span>` : ""}
+      ${isMine ? `<span class="badge" style="background:var(--accent);color:var(--accent-fg);margin-left:8px">SEU TIME</span>` : ""}
     </div>`;
 
   const groupCard = (label) => {

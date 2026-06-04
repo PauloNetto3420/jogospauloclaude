@@ -10,6 +10,8 @@
   --accent-2: #0ea5e9;
   --accent-rgb: 0, 217, 126;
   --accent-2-rgb: 14, 165, 233;
+  --accent-fg: #0a141f;   /* texto sobre --accent (recalculado por time em theme.js) */
+  --accent-2-fg: #ffffff; /* texto sobre --accent-2 */
   --warning: #f59e0b;
   --danger: #ef4444;
   --gold: #fbbf24;
@@ -263,8 +265,8 @@ tbody tr.starter { background: rgba(var(--accent-2-rgb),0.06); }
   font-weight: 600;
 }
 .badge-pos { background: var(--panel-2); color: var(--muted); }
-.badge-ovr { background: var(--accent); color: #000; }
-.badge-ovr.mid { background: var(--accent-2); color: #fff; }
+.badge-ovr { background: var(--accent); color: var(--accent-fg); }
+.badge-ovr.mid { background: var(--accent-2); color: var(--accent-2-fg); }
 .badge-ovr.low { background: var(--border); color: var(--text); }
 .badge-injury { background: var(--danger); color: #fff; }
 .badge-suspended { background: var(--warning); color: #000; }
@@ -287,7 +289,7 @@ button.btn-secondary { background: var(--panel-2); color: var(--text); border: 1
 button.btn-toggle { background: var(--panel-2); color: var(--muted); padding: 5px 14px; font-size: 12px; border-radius: 4px; border: 1px solid var(--border); cursor: pointer; transition: background .12s ease, color .12s ease, border-color .12s ease, transform .08s ease; }
 button.btn-toggle:hover { color: var(--text); border-color: var(--panel-2); }
 button.btn-toggle:active { transform: translateY(1px); }
-button.btn-toggle.on { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; }
+button.btn-toggle.on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 700; }
 .btn-play { transition: filter .12s ease, transform .08s ease, box-shadow .15s ease; }
 .btn-play:active { transform: translateY(1px); }
 
