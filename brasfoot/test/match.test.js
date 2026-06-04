@@ -124,3 +124,39 @@ test("robustez: 200 partidas seguidas sem crash e sempre terminam", () => {
   }
   assert.equal(played, 200);
 });
+
+// -------------------- Forfeit (W.O.) --------------------
+// Quando um time não consegue escalar 7 jogadores, o simulador entra em W.O.
+// Regressão: o objeto-simulador de forfeit deve expor a MESMA interface do
+// normal (score/events/stats/isFinished/tick/getResult), senão a tela de
+// partida ao vivo quebra ao renderizar jogos paralelos (bug: ps.sim.score
+// undefined).
+
+test("createMatchSimulator: forfeit expõe interface completa (score/events/stats)", () => {
+  const { state, rng, home, away } = twoTeams(91);
+  // Esvazia o elenco do mandante → menos de 7 aptos → W.O.
+  home.squad = home.squad.slice(0, 3);
+  const sim = createMatchSimulator({ homeTeam: home, awayTeam: away, playersById: state.players, rng });
+
+  assert.equal(sim.isForfeit, true, "deve ser forfeit");
+  assert.equal(sim.isFinished(), true, "forfeit já está encerrado");
+  // Os getters que a tela ao vivo acessa nos jogos paralelos:
+  assert.ok(sim.score && typeof sim.score.home === "number", "score.home acessível");
+  assert.ok(typeof sim.score.away === "number", "score.away acessível");
+  assert.ok(Array.isArray(sim.events), "events acessível");
+  assert.ok(sim.stats && sim.stats.home && sim.stats.away, "stats.home/away acessível");
+  // tick não deve quebrar e canSubstitute retorna estrutura válida
+  assert.deepEqual(sim.tick(), [], "tick é no-op");
+  const info = sim.canSubstitute("home");
+  assert.ok(Array.isArray(info.onField) && Array.isArray(info.bench), "canSubstitute bem-formado");
+});
+
+test("forfeit: quem não escala perde por W.O. (0x3)", () => {
+  const { state, rng, home, away } = twoTeams(92);
+  home.squad = home.squad.slice(0, 2); // mandante não escala
+  const sim = createMatchSimulator({ homeTeam: home, awayTeam: away, playersById: state.players, rng });
+  const r = sim.getResult();
+  assert.equal(r.score.home, 0, "mandante que deu W.O. perde");
+  assert.equal(r.score.away, 3, "visitante ganha 3x0");
+  assert.ok(r.events.some(e => e.type === "forfeit"), "evento de W.O. registrado");
+});
