@@ -19,7 +19,7 @@ const CONFIG = {
   comebackBoost: 1.10,            // multiplicador no ataque do time perdendo por 3+
   yellowChancePerMin: 0.012,      // ~1 amarelo por time/partida
   redChancePerMin: 0.0008,        // raro
-  injuryChancePerMin: 0.00015,    // ~1 lesão a cada ~7 partidas por time
+  injuryChancePerMin: 0.00008,    // ~1 lesão a cada ~14 partidas por time
   fatigueLossPerMin: 0.4,
 };
 
@@ -542,14 +542,14 @@ function removeFromField(xi, playerId) {
 }
 
 // Distribuição de gravidade da lesão. Maioria leve, poucas longas.
-//   60% → 1-2 sem (entorse, pancada)
-//   30% → 3-5 sem (muscular)
-//   10% → 6-12 sem (ruptura, fratura)
+//   70% → 1-2 sem (entorse, pancada)
+//   25% → 3-4 sem (muscular)
+//    5% → 5-8 sem (ruptura, fratura)
 function rollInjuryWeeks(rng) {
   const r = rng.next();
-  if (r < 0.60) return rng.int(1, 2);
-  if (r < 0.90) return rng.int(3, 5);
-  return rng.int(6, 12);
+  if (r < 0.70) return rng.int(1, 2);
+  if (r < 0.95) return rng.int(3, 4);
+  return rng.int(5, 8);
 }
 
 // W.O. quando algum time não consegue escalar minimamente

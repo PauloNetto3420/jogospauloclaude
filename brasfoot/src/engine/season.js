@@ -145,6 +145,18 @@ export function applyMatchEffects(state, result, competitionId) {
       const p = state.players[lineupEntry.id];
       if (!p) continue;
 
+      // Presença (apps): registra o jogo na ficha da temporada/competição.
+      // É a base do histórico de carreira (player.career, consolidado no fim
+      // da temporada). Sem isso, "Jogos" ficava sempre em 0.
+      {
+        const season = state.season;
+        p.stats[season] = p.stats[season] || {};
+        const st = p.stats[season][competitionId] = p.stats[season][competitionId] || {
+          apps: 0, goals: 0, assists: 0, avgRating: 0,
+        };
+        st.apps += 1;
+      }
+
       // Conta eventos pessoais deste jogador
       let goals = 0, yellows = 0, reds = 0, gotInjured = false;
       for (const ev of result.events) {
@@ -228,6 +240,24 @@ export function recalcTopScorers(competition, playersById) {
     }))
     .sort((a, b) => b.goals - a.goals)
     .slice(0, 20);
+}
+
+// Recuperação de lesões: a cada semana (rodada) desconta 1 de weeksOut de
+// TODOS os jogadores lesionados; ao chegar a 0, o jogador volta a ficar apto.
+// Sem isto, lesões eram permanentes na temporada — os elencos esvaziavam e
+// times acabavam tomando W.O. por não conseguir escalar 7 jogadores.
+export function recoverInjuries(state) {
+  let healed = 0;
+  for (const p of Object.values(state.players)) {
+    const inj = p.status?.injury;
+    if (!inj) continue;
+    inj.weeksOut -= 1;
+    if (inj.weeksOut <= 0) {
+      p.status.injury = null;
+      healed++;
+    }
+  }
+  return healed;
 }
 
 // Após uma rodada, libera quem cumpriu suspensão (decrementa 1 jogo).

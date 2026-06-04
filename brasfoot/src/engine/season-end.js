@@ -11,9 +11,10 @@
 import { sortStandings } from "./season.js";
 import { createCompetition } from "../models/competition.js";
 import { createSerieCPhase1 } from "./serie-c.js";
-import { evolvePlayer, generateFreeAgentBatch } from "../models/player.js";
+import { evolvePlayer, generateFreeAgentBatch, rollUpPlayerSeason } from "../models/player.js";
 import { recalcExpenses } from "../models/team.js";
 import { processSeasonEndAcademy, generateSeasonalYouth } from "./academy.js";
+import { recordSeasonHistory } from "./history.js";
 
 const NEW_FREE_AGENTS_PER_SEASON = 25;
 
@@ -81,6 +82,16 @@ export function endSeason(state, rng) {
     promotedFromC = state.serieCMeta?.promoted || [];            // C → B
     report.relegatedToC = relegatedToC;
     report.promotedFromC = promotedFromC;
+  }
+
+  // 2.5 Snapshot do histórico ANTES de recriar competições (senão perde
+  //     standings finais e artilheiros da temporada que terminou).
+  recordSeasonHistory(state, report);
+
+  // 2.6 Consolida a carreira de cada jogador (1 linha/temporada) ANTES do
+  //     envelhecimento — age/overall/teamId refletem a temporada que terminou.
+  for (const player of Object.values(state.players)) {
+    rollUpPlayerSeason(player, report.season);
   }
 
   // 3. Envelhecimento + aposentadoria

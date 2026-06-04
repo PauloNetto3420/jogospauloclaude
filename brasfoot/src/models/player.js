@@ -172,6 +172,48 @@ export function recalcDerived(player) {
   player.marketValue = calcMarketValue(player.overall, player.age, player.potential);
 }
 
+// -------------------- Histórico de carreira --------------------
+// Consolida a temporada `season` numa linha de player.career.
+// Lê de player.stats[season] (somando todas as competições). Idempotente
+// e não grava temporada sem participação (0 jogos e 0 gols).
+// Chamado no endSeason ANTES do envelhecimento, então age/overall/teamId
+// refletem o jogador na temporada que terminou.
+export function rollUpPlayerSeason(player, season) {
+  if (!player.career) player.career = [];
+  if (player.career.some(c => c.season === season)) return player.career;
+
+  const byComp = player.stats?.[season];
+  if (!byComp) return player.career;
+
+  let apps = 0, goals = 0, assists = 0;
+  for (const s of Object.values(byComp)) {
+    apps += s.apps || 0;
+    goals += s.goals || 0;
+    assists += s.assists || 0;
+  }
+  if (apps === 0 && goals === 0) return player.career;
+
+  player.career.push({
+    season,
+    teamId: player.teamId,
+    age: player.age,
+    overall: player.overall,
+    apps, goals, assists,
+  });
+  return player.career;
+}
+
+// Soma os totais de todas as temporadas já consolidadas em player.career.
+export function getCareerTotals(player) {
+  const rows = player.career || [];
+  return rows.reduce((t, r) => ({
+    seasons: t.seasons + 1,
+    apps: t.apps + (r.apps || 0),
+    goals: t.goals + (r.goals || 0),
+    assists: t.assists + (r.assists || 0),
+  }), { seasons: 0, apps: 0, goals: 0, assists: 0 });
+}
+
 // Avança 1 ano de carreira do jogador.
 // Retorna true se ele se aposentou (não joga mais).
 export function evolvePlayer(player, rng) {

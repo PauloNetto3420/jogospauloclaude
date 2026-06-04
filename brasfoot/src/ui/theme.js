@@ -9,6 +9,8 @@ export function applyTeamTheme(teamColors) {
     root.style.setProperty("--accent-2",     "#0ea5e9");
     root.style.setProperty("--accent-rgb",   "0, 217, 126");
     root.style.setProperty("--accent-2-rgb", "14, 165, 233");
+    root.style.setProperty("--accent-fg",    contrastFg("#00d97e"));
+    root.style.setProperty("--accent-2-fg",  contrastFg("#0ea5e9"));
     return;
   }
   const accent  = ensureBright(teamColors.primary, 0.35);
@@ -17,6 +19,15 @@ export function applyTeamTheme(teamColors) {
   root.style.setProperty("--accent-2",     accent2);
   root.style.setProperty("--accent-rgb",   hexToRgbStr(accent));
   root.style.setProperty("--accent-2-rgb", hexToRgbStr(accent2));
+  // Cor de texto que contrasta com cada accent (resolve o caso do time de
+  // cor clara em que o texto branco do badge sumia — ex.: badge de overall).
+  root.style.setProperty("--accent-fg",    contrastFg(accent));
+  root.style.setProperty("--accent-2-fg",  contrastFg(accent2));
+}
+
+// Escolhe preto ou branco como cor de texto sobre `hex`, pela luminância.
+export function contrastFg(hex) {
+  return luminance(hex) > 0.5 ? "#0a141f" : "#ffffff";
 }
 
 export function luminance(hex) {
