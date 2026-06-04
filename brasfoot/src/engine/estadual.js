@@ -22,6 +22,11 @@ import {
   PAULISTA_QUARTERS_ROUND, PAULISTA_SEMIS_ROUND,
   PAULISTA_FINAL_LEG1_ROUND, PAULISTA_FINAL_LEG2_ROUND, PAULISTA_CHAMPION_PRIZE,
 } from "./paulista.js";
+import {
+  createCariocaPhase1, createCariocaKnockout, advanceCariocaKnockout,
+  applyCariocaKnockoutResult, getCariocaKnockoutLegs, getCariocaQualified,
+  CARIOCA_GROUP_ROUNDS, CARIOCA_TOTAL_ROUNDS, CARIOCA_CHAMPION_PRIZE,
+} from "./carioca.js";
 
 export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS"];
 
@@ -33,14 +38,13 @@ const ESTADUAL_NAMES = {
 };
 
 // Cria todos os estaduais. Retorna o objeto meta (state.estaduais).
-// SP usa o formato Paulista (suíço + mata-mata); os demais, grupos+mata-mata.
+// SP → formato Paulista (suíço); RJ → formato Carioca (grupos cruzados);
+// MG/RS → formato de grupos clássico.
 export function createEstaduais(state, season, rng) {
   const estaduais = {};
   for (const uf of ESTADUAL_STATES) {
-    if (uf === "SP") {
-      estaduais.SP = createPaulistaEstadual(state, season, rng);
-      continue;
-    }
+    if (uf === "SP") { estaduais.SP = createPaulistaEstadual(state, season, rng); continue; }
+    if (uf === "RJ") { estaduais.RJ = createCariocaEstadual(state, season, rng); continue; }
     const teamIds = Object.values(state.teams)
       .filter(t => t.state === uf)
       .map(t => t.id);
@@ -48,6 +52,27 @@ export function createEstaduais(state, season, rng) {
     estaduais[uf] = createOneEstadual(state, uf, teamIds, season, rng);
   }
   return estaduais;
+}
+
+// Campeonato Carioca (Taça Guanabara). Monta a 1ª fase cruzada e registra a
+// competição. Mata-mata criado quando a 1ª fase termina. format: "carioca".
+function createCariocaEstadual(state, season, rng) {
+  const phase1 = createCariocaPhase1({ season, rng });
+  state.competitions.estadual_rj = phase1;
+  return {
+    uf: "RJ",
+    name: ESTADUAL_NAMES.RJ,
+    format: "carioca",
+    teams: [...phase1.teams],
+    phase: "groups",            // groups | quarters | semis | final | done
+    knockout: null,
+    champion: null,
+    prize: CARIOCA_CHAMPION_PRIZE,
+    schedule: {
+      groupRounds: CARIOCA_GROUP_ROUNDS,    // 1..6
+      finalRound: CARIOCA_TOTAL_ROUNDS,     // 10
+    },
+  };
 }
 
 // Campeonato Paulista (formato suíço). Monta a 1ª fase a partir dos potes
@@ -141,6 +166,7 @@ function sortGroup(comp) {
 // Inclui jogos de grupo (rodada ≤ groupRounds) e legs de mata-mata.
 export function getEstadualMatchesForRound(state, estadual, round) {
   if (estadual.format === "paulista") return getPaulistaMatchesForRound(state, estadual, round);
+  if (estadual.format === "carioca") return getCariocaMatchesForRound(state, estadual, round);
 
   const out = [];
   // Grupos
@@ -180,6 +206,7 @@ export function isEstadualDone(estadual) {
 // Avança fases quando a anterior termina. Chamar ao fim de cada rodada.
 export function advanceEstadualPhase(state, estadual, season, rng) {
   if (estadual.format === "paulista") return advancePaulistaEstadual(state, estadual, season, rng);
+  if (estadual.format === "carioca") return advanceCariocaEstadual(state, estadual, season, rng);
 
   if (estadual.phase === "groups") {
     const groupsDone = estadual.groupIds.every(gid =>
@@ -273,6 +300,10 @@ export function applyEstadualKnockoutResult(estadual, leg, rng) {
     applyPaulistaKnockoutResult(estadual.knockout, leg, rng);
     return;
   }
+  if (estadual.format === "carioca") {
+    applyCariocaKnockoutResult(estadual.knockout, leg, rng);
+    return;
+  }
   // Encontra o tie
   let tie = estadual.knockout.semis.find(t => t.leg.id === leg.id);
   if (!tie && estadual.knockout.final?.leg.id === leg.id) tie = estadual.knockout.final;
@@ -332,6 +363,50 @@ function advancePaulistaEstadual(state, estadual, season, rng) {
     estadual.champion = ko.champion;
     // Premiação (R$ 5M) é paga de forma centralizada em finishEstadualPhase,
     // que lê estadual.prize. Evita dupla premiação.
+  }
+}
+
+// -------------------- Formato Carioca (bifurcações) --------------------
+
+// Jogos do Carioca numa rodada: 1ª fase (1..6) via fixtures; mata-mata (7..10)
+// via knockout. kind "group" pra 1ª fase (standings), "semi"/"final" pro KO.
+function getCariocaMatchesForRound(state, estadual, round) {
+  const out = [];
+  if (round <= CARIOCA_GROUP_ROUNDS) {
+    const comp = state.competitions.estadual_rj;
+    if (comp) {
+      for (const m of comp.fixtures) {
+        if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_rj" });
+      }
+    }
+    return out;
+  }
+  if (!estadual.knockout) return out;
+  for (const entry of getCariocaKnockoutLegs(estadual.knockout, round)) {
+    const kind = entry.kind === "final" ? "final" : "semi";
+    out.push({ match: entry.leg, kind, tie: entry.tie });
+  }
+  return out;
+}
+
+// Avança o Carioca: cria o mata-mata ao fim da 1ª fase; depois delega ao
+// advanceCariocaKnockout. Premiação centralizada em finishEstadualPhase.
+function advanceCariocaEstadual(state, estadual, season, rng) {
+  if (estadual.phase === "groups") {
+    const comp = state.competitions.estadual_rj;
+    if (comp && comp.fixtures.every(m => m.played)) {
+      const qualified = getCariocaQualified(comp);
+      estadual.knockout = createCariocaKnockout(qualified);
+      estadual.phase = "quarters";
+    }
+    return;
+  }
+  const ko = estadual.knockout;
+  if (!ko) return;
+  advanceCariocaKnockout(ko);
+  estadual.phase = ko.phase;
+  if (ko.phase === "done" && ko.champion && !estadual.champion) {
+    estadual.champion = ko.champion;
   }
 }
 

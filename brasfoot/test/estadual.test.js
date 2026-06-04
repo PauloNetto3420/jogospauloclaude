@@ -15,8 +15,9 @@ import {
 } from "../src/engine/estadual.js";
 
 // Monta um estado com N times por UF dos 4 estados oficiais (SP/RJ/MG/RS).
-// IDs reais usados pelos potes do Paulista (SP usa formato próprio, com ids fixos).
+// IDs reais usados pelos formatos especiais (SP=Paulista, RJ=Carioca: ids fixos).
 const PAULISTA_IDS = ["cor","pal","spo","sant","ber","nov","rbb","mir","gua","pon","vel","por","pma","cpv","nrt","bfc"];
+const CARIOCA_IDS = ["fla","flu","bot","vas","vol","ban","boa","mad","mca","nig","samr","porj"];
 
 function makeTeamInState(state, rng, { id, uf }) {
   const team = createTeam({
@@ -36,11 +37,12 @@ function stateWithEstaduais({ seed = 7, perUf = 6 } = {}) {
     season: 2026, currentDate: "2026-02-01", managedTeamId: null,
     teams: {}, players: {}, competitions: {}, log: [],
   };
-  // SP usa o formato Paulista (16 ids fixos). Cria esses times.
+  // SP (Paulista, 16) e RJ (Carioca, 12) usam ids fixos. Cria esses times.
   for (const id of PAULISTA_IDS) makeTeamInState(state, rng, { id, uf: "SP" });
-  // Demais estados (RJ/MG/RS) usam o formato de grupos — times fake.
+  for (const id of CARIOCA_IDS) makeTeamInState(state, rng, { id, uf: "RJ" });
+  // MG/RS usam o formato de grupos — times fake.
   for (const uf of ESTADUAL_STATES) {
-    if (uf === "SP") continue;
+    if (uf === "SP" || uf === "RJ") continue;
     for (let i = 0; i < perUf; i++) makeTeamInState(state, rng, { id: `${uf}${i}`, uf });
   }
   state.estaduais = createEstaduais(state, state.season, rng);
@@ -78,16 +80,16 @@ test("createEstaduais: cria 1 estadual por UF oficial (com times suficientes)", 
 });
 
 test("UF de grupos com menos de 4 times não gera estadual", () => {
-  // RJ com apenas 3 times — abaixo do mínimo de 4 do formato de grupos.
-  // (SP é exceção: usa formato Paulista com 16 ids fixos, sempre criado.)
+  // MG com apenas 3 times — abaixo do mínimo de 4 do formato de grupos.
+  // (SP usa Paulista e RJ usa Carioca, ambos com ids fixos, sempre criados.)
   const rng = createRng(1);
   const mini = { season: 2026, teams: {}, players: {}, competitions: {} };
   for (let i = 0; i < 3; i++) {
-    const t = createTeam({ id: `RJ${i}`, name: `x`, shortName: `x`, city: "c", state: "RJ", reputation: 60, colors: { primary: "#000", secondary: "#fff" } });
+    const t = createTeam({ id: `MG${i}`, name: `x`, shortName: `x`, city: "c", state: "MG", reputation: 60, colors: { primary: "#000", secondary: "#fff" } });
     mini.teams[t.id] = t;
   }
   const es = createEstaduais(mini, 2026, rng);
-  assert.equal(es.RJ, undefined, "RJ com 3 times não vira estadual");
+  assert.equal(es.MG, undefined, "MG com 3 times não vira estadual");
 });
 
 // Os testes de FORMATO DE GRUPOS usam MG (SP virou formato Paulista).
@@ -167,4 +169,24 @@ test("Paulista: progressão 1ª fase → quartas → semis → final → campeã
   assert.equal(sp.phase, "done", "terminou");
   assert.ok(sp.champion, "tem campeão");
   assert.ok(sp.teams.includes(sp.champion), "campeão disputou o Paulista");
+});
+
+// -------------------- Formato Carioca (RJ) --------------------
+
+test("RJ usa o formato Carioca (12 times, format=carioca)", () => {
+  const { state } = stateWithEstaduais({ perUf: 6 });
+  const rj = state.estaduais.RJ;
+  assert.equal(rj.format, "carioca", "RJ é formato carioca");
+  assert.equal(rj.teams.length, 12, "12 participantes");
+  assert.ok(state.competitions.estadual_rj, "competição da 1ª fase registrada");
+});
+
+test("Carioca: progressão grupos → quartas → semis → final → campeão", () => {
+  const { state, rng } = stateWithEstaduais({ perUf: 6 });
+  const rj = state.estaduais.RJ;
+  assert.equal(rj.phase, "groups");
+  playEstadualToEnd(state, rj, rng);
+  assert.equal(rj.phase, "done", "terminou");
+  assert.ok(rj.champion, "tem campeão");
+  assert.ok(rj.teams.includes(rj.champion), "campeão disputou o Carioca");
 });
