@@ -1,0 +1,31 @@
+name: Testes
+
+# Roda a suíte do engine (node --test) em todo push e PR no main.
+# Complementa o deploy automático do Cloudflare: garante que o que vai
+# pro ar passou nos 56 testes antes.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: node --test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: brasfoot
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Sem dependências de runtime — os testes usam o runner nativo do Node.
+      - name: Rodar testes
+        run: npm test
