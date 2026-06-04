@@ -71,13 +71,23 @@ export const SERIE_C_SEED = [
   { id: "ypi",  name: "Ypiranga",        shortName: "YPI", city: "Erechim",         state: "RS", colors: { primary: "#006837", secondary: "#FFFFFF" }, stadium: { name: "Colosso da Lagoa",    capacity: 22000 }, reputation: 46, finances: { balance: 4_000_000, monthlyIncome: 1_500_000 } },
 ];
 
-// Clubes paulistas menores — entram no Campeonato Paulista (pré-temporada),
-// mas NÃO disputam nenhuma divisão nacional (A/B/C). São criados no boot só
-// pra completar os 16 do Paulista. (Uma futura Série D pode acolhê-los.)
+// Clubes estaduais menores — entram apenas nos campeonatos estaduais
+// (pré-temporada), mas NÃO disputam nenhuma divisão nacional (A/B/C). São
+// criados no boot só pra completar os formatos especiais (Paulista 16,
+// Carioca 12). (Uma futura Série D pode acolhê-los.)
 export const SERIE_D_SEED = [
+  // --- Paulista (SP) ---
   { id: "vel",  name: "Velo Clube",      shortName: "VEL", city: "Rio Claro",       state: "SP", colors: { primary: "#0033A0", secondary: "#FFFFFF" }, stadium: { name: "Benitão",             capacity: 8000  }, reputation: 40, finances: { balance: 2_500_000, monthlyIncome: 1_100_000 } },
   { id: "por",  name: "Portuguesa",      shortName: "POR", city: "São Paulo",       state: "SP", colors: { primary: "#E30613", secondary: "#006837" }, stadium: { name: "Canindé",             capacity: 21004 }, reputation: 45, finances: { balance: 3_200_000, monthlyIncome: 1_300_000 } },
   { id: "pma",  name: "Primavera",       shortName: "PRI", city: "Indaiatuba",      state: "SP", colors: { primary: "#000000", secondary: "#FFD600" }, stadium: { name: "Ítalo Mário Limongi", capacity: 8000  }, reputation: 36, finances: { balance: 2_000_000, monthlyIncome: 1_000_000 } },
   { id: "cpv",  name: "Capivariano",     shortName: "CAP", city: "Capivari",        state: "SP", colors: { primary: "#E30613", secondary: "#FFFFFF" }, stadium: { name: "Eduardo José Farah",  capacity: 11000 }, reputation: 37, finances: { balance: 2_000_000, monthlyIncome: 1_000_000 } },
   { id: "nrt",  name: "Noroeste",        shortName: "NOR", city: "Bauru",           state: "SP", colors: { primary: "#E30613", secondary: "#000000" }, stadium: { name: "Alfredo de Castilho",  capacity: 15000 }, reputation: 38, finances: { balance: 2_200_000, monthlyIncome: 1_050_000 } },
+  // --- Carioca (RJ) ---
+  { id: "ban",  name: "Bangu",           shortName: "BAN", city: "Rio de Janeiro",  state: "RJ", colors: { primary: "#E30613", secondary: "#FFFFFF" }, stadium: { name: "Moça Bonita",         capacity: 8000  }, reputation: 38, finances: { balance: 2_200_000, monthlyIncome: 1_050_000 } },
+  { id: "boa",  name: "Boavista",        shortName: "BOA", city: "Saquarema",       state: "RJ", colors: { primary: "#0033A0", secondary: "#FFFFFF" }, stadium: { name: "Elcyr Resende",       capacity: 5000  }, reputation: 39, finances: { balance: 2_300_000, monthlyIncome: 1_050_000 } },
+  { id: "mad",  name: "Madureira",       shortName: "MAD", city: "Rio de Janeiro",  state: "RJ", colors: { primary: "#006837", secondary: "#FFD600" }, stadium: { name: "Conselheiro Galvão",  capacity: 5000  }, reputation: 37, finances: { balance: 2_100_000, monthlyIncome: 1_000_000 } },
+  { id: "mca",  name: "Maricá",          shortName: "MCA", city: "Maricá",          state: "RJ", colors: { primary: "#0E73B8", secondary: "#FFD600" }, stadium: { name: "João Saldanha",       capacity: 4000  }, reputation: 35, finances: { balance: 2_000_000, monthlyIncome: 1_000_000 } },
+  { id: "nig",  name: "Nova Iguaçu",     shortName: "NIG", city: "Nova Iguaçu",     state: "RJ", colors: { primary: "#E30613", secondary: "#006837" }, stadium: { name: "Laranjão",            capacity: 6000  }, reputation: 38, finances: { balance: 2_200_000, monthlyIncome: 1_050_000 } },
+  { id: "samr", name: "Sampaio Corrêa",  shortName: "SAM", city: "Saquarema",       state: "RJ", colors: { primary: "#E30613", secondary: "#0033A0" }, stadium: { name: "Estádio do Sampaio",  capacity: 3000  }, reputation: 36, finances: { balance: 2_000_000, monthlyIncome: 1_000_000 } },
+  { id: "porj", name: "Portuguesa-RJ",   shortName: "PRJ", city: "Rio de Janeiro",  state: "RJ", colors: { primary: "#E30613", secondary: "#FFFFFF" }, stadium: { name: "Luso-Brasileiro",     capacity: 6000  }, reputation: 37, finances: { balance: 2_100_000, monthlyIncome: 1_000_000 } },
 ];
