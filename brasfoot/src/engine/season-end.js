@@ -14,6 +14,7 @@ import { createSerieCPhase1 } from "./serie-c.js";
 import { evolvePlayer, generateFreeAgentBatch } from "../models/player.js";
 import { recalcExpenses } from "../models/team.js";
 import { processSeasonEndAcademy, generateSeasonalYouth } from "./academy.js";
+import { recordSeasonHistory } from "./history.js";
 
 const NEW_FREE_AGENTS_PER_SEASON = 25;
 
@@ -82,6 +83,10 @@ export function endSeason(state, rng) {
     report.relegatedToC = relegatedToC;
     report.promotedFromC = promotedFromC;
   }
+
+  // 2.5 Snapshot do histórico ANTES de recriar competições (senão perde
+  //     standings finais e artilheiros da temporada que terminou).
+  recordSeasonHistory(state, report);
 
   // 3. Envelhecimento + aposentadoria
   const retiredIds = [];
