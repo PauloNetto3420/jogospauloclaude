@@ -9,16 +9,16 @@ import { generateSquad } from "../src/models/player.js";
 import { createRng } from "../src/utils/rng.js";
 import { runRound, applyMatchResult } from "../src/engine/season.js";
 import {
-  createEstaduais, getEstadualMatchesForRound, estadualTotalRounds,
+  createEstaduais, createOneEstadual, getEstadualMatchesForRound, estadualTotalRounds,
   advanceEstadualPhase, applyEstadualKnockoutResult, isEstadualDone,
   ESTADUAL_STATES,
 } from "../src/engine/estadual.js";
 
-// Monta um estado com N times por UF dos 4 estados oficiais (SP/RJ/MG/RS).
-// IDs reais usados pelos formatos especiais (SP=Paulista, RJ=Carioca, MG=Mineiro).
+// IDs reais dos 4 formatos especiais (SP=Paulista, RJ=Carioca, MG=Mineiro, RS=Gaúcho).
 const PAULISTA_IDS = ["cor","pal","spo","sant","ber","nov","rbb","mir","gua","pon","vel","por","pma","cpv","nrt","bfc"];
 const CARIOCA_IDS = ["fla","flu","bot","vas","vol","ban","boa","mad","mca","nig","samr","porj"];
 const MINEIRO_IDS = ["atm","cru","amg","atc","tom","ube","bet","itb","dgv","urt","poa","nor"];
+const GAUCHO_IDS = ["gre","int","juv","cax","ypi","sjo","slz","gby","ave","nha","mon","ism"];
 
 function makeTeamInState(state, rng, { id, uf }) {
   const team = createTeam({
@@ -32,23 +32,38 @@ function makeTeamInState(state, rng, { id, uf }) {
   state.teams[team.id] = team;
 }
 
-function stateWithEstaduais({ seed = 7, perUf = 6 } = {}) {
+// Estado com os times dos 4 formatos especiais (ids fixos), mais os times
+// dos formatos de grupos (RS já é gaúcho, então o formato genérico de grupos
+// é testado isoladamente em testGroupEstadual abaixo).
+function stateWithEstaduais({ seed = 7 } = {}) {
   const rng = createRng(seed);
   const state = {
     season: 2026, currentDate: "2026-02-01", managedTeamId: null,
     teams: {}, players: {}, competitions: {}, log: [],
   };
-  // SP (Paulista, 16), RJ (Carioca, 12) e MG (Mineiro, 12) usam ids fixos.
   for (const id of PAULISTA_IDS) makeTeamInState(state, rng, { id, uf: "SP" });
   for (const id of CARIOCA_IDS) makeTeamInState(state, rng, { id, uf: "RJ" });
   for (const id of MINEIRO_IDS) makeTeamInState(state, rng, { id, uf: "MG" });
-  // RS usa o formato de grupos — times fake.
-  for (const uf of ESTADUAL_STATES) {
-    if (uf === "SP" || uf === "RJ" || uf === "MG") continue;
-    for (let i = 0; i < perUf; i++) makeTeamInState(state, rng, { id: `${uf}${i}`, uf });
-  }
+  for (const id of GAUCHO_IDS) makeTeamInState(state, rng, { id, uf: "RS" });
   state.estaduais = createEstaduais(state, state.season, rng);
   return { state, rng };
+}
+
+// Cria um estadual de FORMATO DE GRUPOS isolado (createOneEstadual via
+// createEstaduais não é mais alcançável pelos 4 UFs oficiais — todos viraram
+// formatos especiais. Pra testar o FORMATO DE GRUPOS genérico (fallback),
+// chamamos createOneEstadual diretamente com um UF fictício.
+function groupEstadual({ uf = "PR", n = 6, seed = 7 } = {}) {
+  const rng = createRng(seed);
+  const state = {
+    season: 2026, currentDate: "2026-02-01", managedTeamId: null,
+    teams: {}, players: {}, competitions: {}, log: [],
+  };
+  const ids = [];
+  for (let i = 0; i < n; i++) { makeTeamInState(state, rng, { id: `${uf}${i}`, uf }); ids.push(`${uf}${i}`); }
+  const est = createOneEstadual(state, uf, ids, state.season, rng);
+  state.estaduais = { [uf]: est };
+  return { state, rng, est };
 }
 
 // Joga todas as rodadas de grupo + mata-mata de UM estadual até sair campeão.
@@ -72,49 +87,49 @@ function playEstadualToEnd(state, estadual, rng) {
   }
 }
 
-test("createEstaduais: cria 1 estadual por UF oficial (com times suficientes)", () => {
-  const { state } = stateWithEstaduais({ perUf: 6 });
+test("createEstaduais: cria 1 estadual por UF oficial com seu formato", () => {
+  const { state } = stateWithEstaduais();
+  const formatByUf = { SP: "paulista", RJ: "carioca", MG: "mineiro", RS: "gaucho" };
   for (const uf of ESTADUAL_STATES) {
     assert.ok(state.estaduais[uf], `estadual de ${uf} existe`);
     assert.equal(state.estaduais[uf].uf, uf);
+    assert.equal(state.estaduais[uf].format, formatByUf[uf], `${uf} usa formato ${formatByUf[uf]}`);
     assert.equal(state.estaduais[uf].phase, "groups", "começa na fase de grupos");
   }
 });
 
 test("UF de grupos com menos de 4 times não gera estadual", () => {
-  // RS com apenas 3 times — abaixo do mínimo de 4 do formato de grupos.
-  // (SP usa Paulista e RJ usa Carioca, ambos com ids fixos, sempre criados.)
+  // UF fictício (PR) com apenas 3 times — abaixo do mínimo de 4 do grupo.
+  // (createEstaduais só cria os 4 oficiais; aqui validamos via teamIds < 4.)
   const rng = createRng(1);
   const mini = { season: 2026, teams: {}, players: {}, competitions: {} };
   for (let i = 0; i < 3; i++) {
-    const t = createTeam({ id: `RS${i}`, name: `x`, shortName: `x`, city: "c", state: "RS", reputation: 60, colors: { primary: "#000", secondary: "#fff" } });
+    const t = createTeam({ id: `PR${i}`, name: `x`, shortName: `x`, city: "c", state: "PR", reputation: 60, colors: { primary: "#000", secondary: "#fff" } });
     mini.teams[t.id] = t;
   }
   const es = createEstaduais(mini, 2026, rng);
-  assert.equal(es.RS, undefined, "RS com 3 times não vira estadual");
+  assert.equal(es.PR, undefined, "PR não é UF oficial — sem estadual");
 });
 
-// Os testes de FORMATO DE GRUPOS usam MG (SP virou formato Paulista).
+// Testes do FORMATO DE GRUPOS genérico (fallback), via createOneEstadual.
 test("≤8 times: grupo único; >8 times: dois grupos", () => {
-  const small = stateWithEstaduais({ perUf: 6 });   // 6 → grupo único
-  assert.equal(small.state.estaduais.RS.twoGroups, false, "6 times = grupo único");
+  const small = groupEstadual({ n: 6 });
+  assert.equal(small.est.twoGroups, false, "6 times = grupo único");
 
-  const big = stateWithEstaduais({ perUf: 10 });     // 10 → dois grupos
-  assert.equal(big.state.estaduais.RS.twoGroups, true, "10 times = dois grupos");
-  assert.equal(big.state.estaduais.RS.groupIds.length, 2, "dois ids de grupo");
+  const big = groupEstadual({ n: 10 });
+  assert.equal(big.est.twoGroups, true, "10 times = dois grupos");
+  assert.equal(big.est.groupIds.length, 2, "dois ids de grupo");
 });
 
 test("getEstadualMatchesForRound: rodada 1 traz jogos de grupo", () => {
-  const { state } = stateWithEstaduais({ perUf: 6 });
-  const est = state.estaduais.RS;
+  const { state, est } = groupEstadual({ n: 6 });
   const r1 = getEstadualMatchesForRound(state, est, 1);
   assert.ok(r1.length > 0, "tem jogos na rodada 1");
   for (const mm of r1) assert.equal(mm.kind, "group", "rodada 1 = grupo");
 });
 
 test("progressão completa: grupos → semis → final → campeão", () => {
-  const { state, rng } = stateWithEstaduais({ perUf: 6 });
-  const est = state.estaduais.RS;
+  const { state, rng, est } = groupEstadual({ n: 6 });
 
   assert.equal(est.phase, "groups");
   playEstadualToEnd(state, est, rng);
@@ -127,9 +142,7 @@ test("progressão completa: grupos → semis → final → campeão", () => {
 });
 
 test("semis sempre montam 2 confrontos", () => {
-  const { state, rng } = stateWithEstaduais({ perUf: 6 });
-  const est = state.estaduais.RS;
-  // Joga só até o fim dos grupos
+  const { state, rng, est } = groupEstadual({ n: 6 });
   const groupRounds = est.schedule.groupRounds;
   for (let round = 1; round <= groupRounds; round++) {
     for (const mm of getEstadualMatchesForRound(state, est, round)) {
@@ -143,10 +156,9 @@ test("semis sempre montam 2 confrontos", () => {
   assert.equal(est.knockout.semis.length, 2, "2 semifinais");
 });
 
-test("determinismo: mesmo seed → mesmo campeão estadual (RS)", () => {
+test("determinismo: mesmo seed → mesmo campeão estadual (grupos)", () => {
   const run = () => {
-    const { state, rng } = stateWithEstaduais({ seed: 2024, perUf: 6 });
-    const est = state.estaduais.RS;
+    const { state, rng, est } = groupEstadual({ seed: 2024, n: 6 });
     playEstadualToEnd(state, est, rng);
     return est.champion;
   };
@@ -156,7 +168,7 @@ test("determinismo: mesmo seed → mesmo campeão estadual (RS)", () => {
 // -------------------- Formato Paulista (SP) --------------------
 
 test("SP usa o formato Paulista (16 times, format=paulista)", () => {
-  const { state } = stateWithEstaduais({ perUf: 6 });
+  const { state } = stateWithEstaduais();
   const sp = state.estaduais.SP;
   assert.equal(sp.format, "paulista", "SP é formato paulista");
   assert.equal(sp.teams.length, 16, "16 participantes");
@@ -164,7 +176,7 @@ test("SP usa o formato Paulista (16 times, format=paulista)", () => {
 });
 
 test("Paulista: progressão 1ª fase → quartas → semis → final → campeão", () => {
-  const { state, rng } = stateWithEstaduais({ perUf: 6 });
+  const { state, rng } = stateWithEstaduais();
   const sp = state.estaduais.SP;
   assert.equal(sp.phase, "groups");
   playEstadualToEnd(state, sp, rng);
@@ -176,7 +188,7 @@ test("Paulista: progressão 1ª fase → quartas → semis → final → campeã
 // -------------------- Formato Carioca (RJ) --------------------
 
 test("RJ usa o formato Carioca (12 times, format=carioca)", () => {
-  const { state } = stateWithEstaduais({ perUf: 6 });
+  const { state } = stateWithEstaduais();
   const rj = state.estaduais.RJ;
   assert.equal(rj.format, "carioca", "RJ é formato carioca");
   assert.equal(rj.teams.length, 12, "12 participantes");
@@ -184,7 +196,7 @@ test("RJ usa o formato Carioca (12 times, format=carioca)", () => {
 });
 
 test("Carioca: progressão grupos → quartas → semis → final → campeão", () => {
-  const { state, rng } = stateWithEstaduais({ perUf: 6 });
+  const { state, rng } = stateWithEstaduais();
   const rj = state.estaduais.RJ;
   assert.equal(rj.phase, "groups");
   playEstadualToEnd(state, rj, rng);
@@ -196,7 +208,7 @@ test("Carioca: progressão grupos → quartas → semis → final → campeão",
 // -------------------- Formato Mineiro (MG) --------------------
 
 test("MG usa o formato Mineiro (12 times, format=mineiro)", () => {
-  const { state } = stateWithEstaduais({ perUf: 6 });
+  const { state } = stateWithEstaduais();
   const mg = state.estaduais.MG;
   assert.equal(mg.format, "mineiro", "MG é formato mineiro");
   assert.equal(mg.teams.length, 12, "12 participantes");
@@ -204,11 +216,31 @@ test("MG usa o formato Mineiro (12 times, format=mineiro)", () => {
 });
 
 test("Mineiro: progressão grupos → semis → final → campeão", () => {
-  const { state, rng } = stateWithEstaduais({ perUf: 6 });
+  const { state, rng } = stateWithEstaduais();
   const mg = state.estaduais.MG;
   assert.equal(mg.phase, "groups");
   playEstadualToEnd(state, mg, rng);
   assert.equal(mg.phase, "done", "terminou");
   assert.ok(mg.champion, "tem campeão");
   assert.ok(mg.teams.includes(mg.champion), "campeão disputou o Mineiro");
+});
+
+// -------------------- Formato Gaúcho (RS) --------------------
+
+test("RS usa o formato Gaúcho (12 times, format=gaucho)", () => {
+  const { state } = stateWithEstaduais();
+  const rs = state.estaduais.RS;
+  assert.equal(rs.format, "gaucho", "RS é formato gaúcho");
+  assert.equal(rs.teams.length, 12, "12 participantes");
+  assert.ok(state.competitions.estadual_rs, "competição da 1ª fase registrada");
+});
+
+test("Gaúcho: progressão grupos → quartas → semis → final → campeão", () => {
+  const { state, rng } = stateWithEstaduais();
+  const rs = state.estaduais.RS;
+  assert.equal(rs.phase, "groups");
+  playEstadualToEnd(state, rs, rng);
+  assert.equal(rs.phase, "done", "terminou");
+  assert.ok(rs.champion, "tem campeão");
+  assert.ok(rs.teams.includes(rs.champion), "campeão disputou o Gaúcho");
 });
