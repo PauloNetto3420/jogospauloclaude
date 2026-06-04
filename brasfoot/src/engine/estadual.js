@@ -27,6 +27,12 @@ import {
   applyCariocaKnockoutResult, getCariocaKnockoutLegs, getCariocaQualified,
   CARIOCA_GROUP_ROUNDS, CARIOCA_TOTAL_ROUNDS, CARIOCA_CHAMPION_PRIZE,
 } from "./carioca.js";
+import {
+  createMineiroPhase1, createMineiroKnockout, advanceMineiroKnockout,
+  applyMineiroKnockoutResult, getMineiroKnockoutLegs, getMineiroQualified,
+  MINEIRO_TEAM_IDS, MINEIRO_GROUP_ROUNDS, MINEIRO_TOTAL_ROUNDS,
+  MINEIRO_SEMI_LEG1_ROUND, MINEIRO_CHAMPION_PRIZE,
+} from "./mineiro.js";
 
 export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS"];
 
@@ -45,6 +51,7 @@ export function createEstaduais(state, season, rng) {
   for (const uf of ESTADUAL_STATES) {
     if (uf === "SP") { estaduais.SP = createPaulistaEstadual(state, season, rng); continue; }
     if (uf === "RJ") { estaduais.RJ = createCariocaEstadual(state, season, rng); continue; }
+    if (uf === "MG") { estaduais.MG = createMineiroEstadual(state, season, rng); continue; }
     const teamIds = Object.values(state.teams)
       .filter(t => t.state === uf)
       .map(t => t.id);
@@ -71,6 +78,27 @@ function createCariocaEstadual(state, season, rng) {
     schedule: {
       groupRounds: CARIOCA_GROUP_ROUNDS,    // 1..6
       finalRound: CARIOCA_TOTAL_ROUNDS,     // 10
+    },
+  };
+}
+
+// Campeonato Mineiro (3 grupos cruzados). 1ª fase 1..12, semi direta 13/14,
+// final 15. Mata-mata criado ao fim da 1ª fase. format: "mineiro".
+function createMineiroEstadual(state, season, rng) {
+  const phase1 = createMineiroPhase1({ season, rng, teamIds: MINEIRO_TEAM_IDS });
+  state.competitions.estadual_mg = phase1;
+  return {
+    uf: "MG",
+    name: ESTADUAL_NAMES.MG,
+    format: "mineiro",
+    teams: [...phase1.teams],
+    phase: "groups",            // groups | semis | final | done
+    knockout: null,
+    champion: null,
+    prize: MINEIRO_CHAMPION_PRIZE,
+    schedule: {
+      groupRounds: MINEIRO_GROUP_ROUNDS,    // 1..12
+      finalRound: MINEIRO_TOTAL_ROUNDS,     // 15
     },
   };
 }
@@ -167,6 +195,7 @@ function sortGroup(comp) {
 export function getEstadualMatchesForRound(state, estadual, round) {
   if (estadual.format === "paulista") return getPaulistaMatchesForRound(state, estadual, round);
   if (estadual.format === "carioca") return getCariocaMatchesForRound(state, estadual, round);
+  if (estadual.format === "mineiro") return getMineiroMatchesForRound(state, estadual, round);
 
   const out = [];
   // Grupos
@@ -207,6 +236,7 @@ export function isEstadualDone(estadual) {
 export function advanceEstadualPhase(state, estadual, season, rng) {
   if (estadual.format === "paulista") return advancePaulistaEstadual(state, estadual, season, rng);
   if (estadual.format === "carioca") return advanceCariocaEstadual(state, estadual, season, rng);
+  if (estadual.format === "mineiro") return advanceMineiroEstadual(state, estadual, season, rng);
 
   if (estadual.phase === "groups") {
     const groupsDone = estadual.groupIds.every(gid =>
@@ -302,6 +332,10 @@ export function applyEstadualKnockoutResult(estadual, leg, rng) {
   }
   if (estadual.format === "carioca") {
     applyCariocaKnockoutResult(estadual.knockout, leg, rng);
+    return;
+  }
+  if (estadual.format === "mineiro") {
+    applyMineiroKnockoutResult(estadual.knockout, leg, rng);
     return;
   }
   // Encontra o tie
@@ -404,6 +438,49 @@ function advanceCariocaEstadual(state, estadual, season, rng) {
   const ko = estadual.knockout;
   if (!ko) return;
   advanceCariocaKnockout(ko);
+  estadual.phase = ko.phase;
+  if (ko.phase === "done" && ko.champion && !estadual.champion) {
+    estadual.champion = ko.champion;
+  }
+}
+
+// -------------------- Formato Mineiro (bifurcações) --------------------
+
+// Jogos do Mineiro numa rodada: 1ª fase (1..12) via fixtures; mata-mata
+// (13..15) via knockout. kind "group" pra 1ª fase, "semi"/"final" pro KO.
+function getMineiroMatchesForRound(state, estadual, round) {
+  const out = [];
+  if (round <= MINEIRO_GROUP_ROUNDS) {
+    const comp = state.competitions.estadual_mg;
+    if (comp) {
+      for (const m of comp.fixtures) {
+        if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_mg" });
+      }
+    }
+    return out;
+  }
+  if (!estadual.knockout) return out;
+  for (const entry of getMineiroKnockoutLegs(estadual.knockout, round)) {
+    const kind = entry.kind === "final" ? "final" : "semi";
+    out.push({ match: entry.leg, kind, tie: entry.tie });
+  }
+  return out;
+}
+
+// Avança o Mineiro: cria o mata-mata (semi direta) ao fim da 1ª fase.
+function advanceMineiroEstadual(state, estadual, season, rng) {
+  if (estadual.phase === "groups") {
+    const comp = state.competitions.estadual_mg;
+    if (comp && comp.fixtures.every(m => m.played)) {
+      const qualified = getMineiroQualified(comp);
+      estadual.knockout = createMineiroKnockout(qualified);
+      estadual.phase = "semis";
+    }
+    return;
+  }
+  const ko = estadual.knockout;
+  if (!ko) return;
+  advanceMineiroKnockout(ko);
   estadual.phase = ko.phase;
   if (ko.phase === "done" && ko.champion && !estadual.champion) {
     estadual.champion = ko.champion;

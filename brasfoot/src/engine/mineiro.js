@@ -17,6 +17,13 @@ import { sortStandings } from "./season.js";
 // 1ª fase ocupa rodadas 1..12 (3 pares × 4 rodadas). Mata-mata vem depois.
 export const MINEIRO_GROUP_ROUNDS = 12;
 
+// Os 12 participantes oficiais do Mineiro (4 reais + 8 da Série D).
+export const MINEIRO_TEAM_IDS = [
+  "atm", "cru", "amg", "atc",           // grandes / reais
+  "tom", "ube", "bet", "itb",
+  "dgv", "urt", "poa", "nor",
+];
+
 // Monta a 1ª fase. `groups` opcional: array de 3 arrays de 4 ids. Se ausente,
 // usa `teamIds` (12) dividido em 3 grupos por sorteio equilibrado.
 export function createMineiroPhase1({ season, rng, teamIds, groups } = {}) {

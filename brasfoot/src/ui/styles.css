@@ -225,6 +225,11 @@ body {
   grid-template-columns: 1.3fr 1fr;
   gap: 16px;
 }
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
 
 /* -------------------- Tabelas -------------------- */
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -954,6 +959,7 @@ button.btn-danger { background: var(--danger); color: #fff; }
 
   /* Cards e grids empilham */
   .grid-2 { grid-template-columns: 1fr; }
+  .grid-3 { grid-template-columns: 1fr; }
   .card { padding: 16px; }
 
   /* Tabelas: rolagem horizontal pra não estourar a largura */
