@@ -1,5 +1,7 @@
 # Brasfoot Moderno
 
+[![Testes](https://github.com/PauloNetto3420/jogospauloclaude/actions/workflows/test.yml/badge.svg)](https://github.com/PauloNetto3420/jogospauloclaude/actions/workflows/test.yml)
+
 **▶ Jogue agora: [jogospauloclaude.paulonetto3420.workers.dev](https://jogospauloclaude.paulonetto3420.workers.dev/)**
 
 Clone moderno do Brasfoot rodando 100% no navegador. Construído em JavaScript puro (ES Modules), sem dependências de runtime, com persistência via IndexedDB.
