@@ -359,6 +359,17 @@ async function startGame(teamId) {
 
 // -------------------- Render principal --------------------
 function renderShell() {
+  // Invariante: ui.myTeamId espelha state.managedTeamId (valor canônico e
+  // persistido). Autocorrige qualquer divergência — ex.: após troca de clube
+  // pela diretoria — para a UI nunca mostrar o clube errado.
+  if (state.managedTeamId && ui.myTeamId !== state.managedTeamId) {
+    ui.myTeamId = state.managedTeamId;
+    if (state.teams[ui.myTeamId]) {
+      const cid = resolveUserCompetition();
+      if (cid) { ui.myCompId = cid; ui.standingsView = cid; }
+      applyTeamTheme(state.teams[ui.myTeamId].colors);
+    }
+  }
   const my = state.teams[ui.myTeamId];
   // Se a competição atual sumiu (ex.: subcomps da Série C após endSeason),
   // recoloca o usuário na sua nova divisão antes de seguir.
