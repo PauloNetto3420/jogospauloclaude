@@ -43,8 +43,13 @@ import {
   applyParanaenseKnockoutResult, getParanaenseKnockoutLegs, getParanaenseQualified,
   PARANAENSE_GROUP_ROUNDS, PARANAENSE_TOTAL_ROUNDS, PARANAENSE_CHAMPION_PRIZE,
 } from "./paranaense.js";
+import {
+  createBaianoPhase1, createBaianoKnockout, advanceBaianoKnockout,
+  applyBaianoKnockoutResult, getBaianoKnockoutLegs, getBaianoQualified,
+  BAIANO_PHASE1_ROUNDS, BAIANO_TOTAL_ROUNDS, BAIANO_CHAMPION_PRIZE,
+} from "./baiano.js";
 
-export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR"];
+export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA"];
 
 const ESTADUAL_NAMES = {
   SP: "Campeonato Paulista",
@@ -52,6 +57,7 @@ const ESTADUAL_NAMES = {
   MG: "Campeonato Mineiro",
   RS: "Campeonato Gaúcho",
   PR: "Campeonato Paranaense",
+  BA: "Campeonato Baiano",
 };
 
 // Cria todos os estaduais. Retorna o objeto meta (state.estaduais).
@@ -65,6 +71,7 @@ export function createEstaduais(state, season, rng) {
     if (uf === "MG") { estaduais.MG = createMineiroEstadual(state, season, rng); continue; }
     if (uf === "RS") { estaduais.RS = createGauchoEstadual(state, season, rng); continue; }
     if (uf === "PR") { estaduais.PR = createParanaenseEstadual(state, season, rng); continue; }
+    if (uf === "BA") { estaduais.BA = createBaianoEstadual(state, season, rng); continue; }
     const teamIds = Object.values(state.teams)
       .filter(t => t.state === uf)
       .map(t => t.id);
@@ -154,6 +161,27 @@ function createParanaenseEstadual(state, season, rng) {
     schedule: {
       groupRounds: PARANAENSE_GROUP_ROUNDS,   // 1..6
       finalRound: PARANAENSE_TOTAL_ROUNDS,    // 12
+    },
+  };
+}
+
+// Campeonato Baiano (pontos corridos turno único, sem grupos). 1ª fase 1..9,
+// semis jogo único 10, final jogo único 11. format: "baiano".
+function createBaianoEstadual(state, season, rng) {
+  const phase1 = createBaianoPhase1({ season });
+  state.competitions.estadual_ba = phase1;
+  return {
+    uf: "BA",
+    name: ESTADUAL_NAMES.BA,
+    format: "baiano",
+    teams: [...phase1.teams],
+    phase: "league",            // league | semis | final | done
+    knockout: null,
+    champion: null,
+    prize: BAIANO_CHAMPION_PRIZE,
+    schedule: {
+      groupRounds: BAIANO_PHASE1_ROUNDS,    // 1..9
+      finalRound: BAIANO_TOTAL_ROUNDS,      // 11
     },
   };
 }
@@ -257,6 +285,7 @@ export function getEstadualMatchesForRound(state, estadual, round) {
   if (estadual.format === "mineiro") return getMineiroMatchesForRound(state, estadual, round);
   if (estadual.format === "gaucho") return getGauchoMatchesForRound(state, estadual, round);
   if (estadual.format === "paranaense") return getParanaenseMatchesForRound(state, estadual, round);
+  if (estadual.format === "baiano") return getBaianoMatchesForRound(state, estadual, round);
 
   const out = [];
   // Grupos
@@ -300,6 +329,7 @@ export function advanceEstadualPhase(state, estadual, season, rng) {
   if (estadual.format === "mineiro") return advanceMineiroEstadual(state, estadual, season, rng);
   if (estadual.format === "gaucho") return advanceGauchoEstadual(state, estadual, season, rng);
   if (estadual.format === "paranaense") return advanceParanaenseEstadual(state, estadual, season, rng);
+  if (estadual.format === "baiano") return advanceBaianoEstadual(state, estadual, season, rng);
 
   if (estadual.phase === "groups") {
     const groupsDone = estadual.groupIds.every(gid =>
@@ -407,6 +437,10 @@ export function applyEstadualKnockoutResult(estadual, leg, rng) {
   }
   if (estadual.format === "paranaense") {
     applyParanaenseKnockoutResult(estadual.knockout, leg, rng);
+    return;
+  }
+  if (estadual.format === "baiano") {
+    applyBaianoKnockoutResult(estadual.knockout, leg, rng);
     return;
   }
   // Encontra o tie
@@ -638,6 +672,49 @@ function advanceParanaenseEstadual(state, estadual, season, rng) {
   const ko = estadual.knockout;
   if (!ko) return;
   advanceParanaenseKnockout(ko);
+  estadual.phase = ko.phase;
+  if (ko.phase === "done" && ko.champion && !estadual.champion) {
+    estadual.champion = ko.champion;
+  }
+}
+
+// -------------------- Formato Baiano (bifurcações) --------------------
+
+// Jogos do Baiano numa rodada: 1ª fase (1..9, pontos corridos) via fixtures;
+// mata-mata (10 semis, 11 final, jogo único) via knockout.
+function getBaianoMatchesForRound(state, estadual, round) {
+  const out = [];
+  if (round <= BAIANO_PHASE1_ROUNDS) {
+    const comp = state.competitions.estadual_ba;
+    if (comp) {
+      for (const m of comp.fixtures) {
+        if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_ba" });
+      }
+    }
+    return out;
+  }
+  if (!estadual.knockout) return out;
+  for (const entry of getBaianoKnockoutLegs(estadual.knockout, round)) {
+    const kind = entry.kind === "final" ? "final" : "semi";
+    out.push({ match: entry.leg, kind, tie: entry.tie });
+  }
+  return out;
+}
+
+// Avança o Baiano: cria o mata-mata ao fim da 1ª fase; delega ao KO.
+function advanceBaianoEstadual(state, estadual, season, rng) {
+  if (estadual.phase === "league") {
+    const comp = state.competitions.estadual_ba;
+    if (comp && comp.fixtures.every(m => m.played)) {
+      const qualified = getBaianoQualified(comp, state.teams);
+      estadual.knockout = createBaianoKnockout(qualified);
+      estadual.phase = "semis";
+    }
+    return;
+  }
+  const ko = estadual.knockout;
+  if (!ko) return;
+  advanceBaianoKnockout(ko);
   estadual.phase = ko.phase;
   if (ko.phase === "done" && ko.champion && !estadual.champion) {
     estadual.champion = ko.champion;
