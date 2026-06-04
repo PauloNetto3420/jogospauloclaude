@@ -850,3 +850,73 @@ export function showSeasonRecapModal(info, onContinue) {
   container.addEventListener("click", (e) => { if (e.target === container) close(); });
   document.addEventListener("keydown", onKey);
 }
+
+// -------------------- Modal: Propostas de Emprego --------------------
+// Mostrado quando o treinador é demitido (escolha obrigatória) ou assediado
+// por um clube maior (pode recusar e ficar). onChoose(teamId|null).
+export function showJobOffersModal(info, onChoose) {
+  const fired = !!info.fired;
+  const offers = info.offers || [];
+  const former = state.teams[info.formerTeamId];
+
+  const header = fired
+    ? `<div style="font-size:11px;color:var(--danger);text-transform:uppercase;letter-spacing:1.5px">Demitido</div>
+       <h2 style="font-size:24px;margin:6px 0 0">📪 Sem clube</h2>
+       <div style="font-size:13px;color:var(--muted);margin-top:6px">Sua passagem pelo ${former?.name ?? "clube"} chegou ao fim${info.reason ? ` (${info.reason})` : ""}. Escolha seu próximo desafio.</div>`
+    : `<div style="font-size:11px;color:var(--accent);text-transform:uppercase;letter-spacing:1.5px">Assédio</div>
+       <h2 style="font-size:24px;margin:6px 0 0">📨 Sondagem de mercado</h2>
+       <div style="font-size:13px;color:var(--muted);margin-top:6px">Sua campanha chamou atenção. Um clube maior quer você — ou prefere seguir no ${former?.name ?? "clube"}?</div>`;
+
+  const offerCard = (o) => `
+    <button class="job-offer" data-offer-team="${o.teamId}"
+      style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:12px 14px;margin-bottom:8px;
+             background:var(--bg-2);border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:border-color .12s,background .12s">
+      ${teamLogo(o.teamId, 34)}
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700">${o.name}</div>
+        <div style="font-size:12px;color:var(--muted)">${o.division} · estatura ${o.reputation}</div>
+      </div>
+      <span class="badge" style="background:var(--accent);color:var(--accent-fg)">Assumir</span>
+    </button>`;
+
+  const manager = state.manager;
+  const container = document.createElement("div");
+  container.className = "modal-backdrop visible";
+  container.style.zIndex = "320";
+  container.innerHTML = `
+    <div class="modal" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column">
+      <div style="padding:22px 24px 16px;border-bottom:1px solid var(--border);text-align:center">
+        ${header}
+        ${manager ? `<div style="font-size:12px;color:var(--muted);margin-top:10px">Sua reputação como treinador: <b style="color:var(--accent)">${manager.reputation}</b></div>` : ""}
+      </div>
+      <div style="padding:18px 24px;overflow-y:auto;flex:1">
+        ${offers.length ? offers.map(offerCard).join("") : `<div style="color:var(--muted);text-align:center">Nenhuma proposta no momento.</div>`}
+      </div>
+      <div style="padding:14px 24px;border-top:1px solid var(--border)">
+        ${fired
+          ? `<div style="font-size:12px;color:var(--muted);text-align:center">Escolha um clube para continuar.</div>`
+          : `<button class="btn btn-secondary" id="job-stay" style="width:100%;padding:12px">Ficar no ${former?.name ?? "clube atual"}</button>`}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(container);
+
+  const finish = (teamId) => {
+    document.removeEventListener("keydown", onKey);
+    container.remove();
+    onChoose && onChoose(teamId);
+  };
+  function onKey(e) {
+    // No firing não permite escapar sem escolher; no assédio, Esc = ficar.
+    if (!fired && e.key === "Escape") finish(null);
+  }
+  container.querySelectorAll("[data-offer-team]").forEach(btn => {
+    btn.onmouseenter = () => { btn.style.borderColor = "var(--accent)"; btn.style.background = "var(--panel-2)"; };
+    btn.onmouseleave = () => { btn.style.borderColor = "var(--border)"; btn.style.background = "var(--bg-2)"; };
+    btn.onclick = () => finish(btn.dataset.offerTeam);
+  });
+  const stay = container.querySelector("#job-stay");
+  if (stay) stay.onclick = () => finish(null);
+  if (!fired) container.addEventListener("click", (e) => { if (e.target === container) finish(null); });
+  document.addEventListener("keydown", onKey);
+}

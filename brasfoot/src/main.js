@@ -17,6 +17,8 @@ import { createSerieCPhase1 } from "./engine/serie-c.js";
 import { generateSeasonalYouth, promoteProspect, sellProspect, releaseProspect } from "./engine/academy.js";
 import { pickAITrainingFocus } from "./engine/training.js";
 import { createEstaduais, getEstadualMatchesForRound } from "./engine/estadual.js";
+import { initManager } from "./engine/manager.js";
+import { assignBoardObjective, computeConfidence } from "./engine/board.js";
 import { saveGame, listSaves, deleteSave } from "./db.js";
 import { SERIE_A_SEED, SERIE_B_SEED, SERIE_C_SEED, SERIE_D_SEED } from "../data/teams.seed.js";
 import { state, rng, setState, setRng, ui } from "./core/store.js";
@@ -41,7 +43,7 @@ import { autoLineup, findNextMatch } from "./engine/lineup-helpers.js";
 import {
   playRound, forceResolveSeason, resolveUserCompetition,
   getUserEstadual, getMaxEstadualRound, findNextUserCommitment,
-  registerSeasonFlowHooks,
+  registerSeasonFlowHooks, announceBoardObjective,
 } from "./core/season-flow.js";
 
 // -------------------- Constantes --------------------
@@ -184,6 +186,10 @@ function loadIntoState(save) {
   ui.standingsView = ui.myCompId;
   setRng(createRng(state.settings?.seed ?? Date.now()));
   syncPlayerIdCounter(state.players);
+
+  // Retrocompat: saves anteriores às Metas da Diretoria não têm treinador/meta.
+  if (!state.manager) initManager(state, ui.myTeamId);
+  if (!state.teams[ui.myTeamId].board) assignBoardObjective(state, ui.myTeamId);
 
   applyTeamTheme(state.teams[ui.myTeamId].colors);
 
@@ -339,6 +345,11 @@ async function startGame(teamId) {
 
   applyTeamTheme(state.teams[ui.myTeamId].colors);
 
+  // Carreira do treinador + meta da diretoria para a 1ª temporada
+  initManager(state, ui.myTeamId);
+  assignBoardObjective(state, ui.myTeamId);
+  announceBoardObjective(state);
+
   try { await saveGame(state); } catch (e) { console.warn("Save inicial falhou:", e); }
 
   $btnPlay.style.display = "";
@@ -393,12 +404,31 @@ function renderShell() {
     `;
   }
 
+  const board = my.board;
+  let boardBlock = "";
+  if (board?.objective) {
+    const conf = computeConfidence(state, ui.myTeamId);
+    const confColor = conf >= 60 ? "var(--accent)" : conf >= 35 ? "var(--warning)" : "var(--danger)";
+    boardBlock = `
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">🎯 Meta da diretoria</div>
+        <div style="font-size:12px;font-weight:600;margin:2px 0 5px">${board.objective.label}</div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <div style="flex:1;height:6px;background:var(--bg-2);border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:${conf}%;background:${confColor}"></div>
+          </div>
+          <span style="font-size:11px;color:${confColor};font-weight:700">${conf}%</span>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">confiança da diretoria</div>
+      </div>`;
+  }
   $teamCard.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
       ${teamLogo(ui.myTeamId, 32)}
       <div class="name">${my.name}</div>
     </div>
     <div class="meta">Reputação ${my.reputation} · ${my.squad.length} jogadores</div>
+    ${boardBlock}
   `;
 
   const unread = (state.inbox || []).filter(n => !n.read).length;
