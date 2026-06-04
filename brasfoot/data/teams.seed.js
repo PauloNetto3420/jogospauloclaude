@@ -70,3 +70,14 @@ export const SERIE_C_SEED = [
   { id: "vol",  name: "Volta Redonda",   shortName: "VOL", city: "Volta Redonda",   state: "RJ", colors: { primary: "#000000", secondary: "#FFFFFF" }, stadium: { name: "Raulino de Oliveira", capacity: 20255 }, reputation: 48, finances: { balance: 4_000_000, monthlyIncome: 1_600_000 } },
   { id: "ypi",  name: "Ypiranga",        shortName: "YPI", city: "Erechim",         state: "RS", colors: { primary: "#006837", secondary: "#FFFFFF" }, stadium: { name: "Colosso da Lagoa",    capacity: 22000 }, reputation: 46, finances: { balance: 4_000_000, monthlyIncome: 1_500_000 } },
 ];
+
+// Clubes paulistas menores — entram no Campeonato Paulista (pré-temporada),
+// mas NÃO disputam nenhuma divisão nacional (A/B/C). São criados no boot só
+// pra completar os 16 do Paulista. (Uma futura Série D pode acolhê-los.)
+export const SERIE_D_SEED = [
+  { id: "vel",  name: "Velo Clube",      shortName: "VEL", city: "Rio Claro",       state: "SP", colors: { primary: "#0033A0", secondary: "#FFFFFF" }, stadium: { name: "Benitão",             capacity: 8000  }, reputation: 40, finances: { balance: 2_500_000, monthlyIncome: 1_100_000 } },
+  { id: "por",  name: "Portuguesa",      shortName: "POR", city: "São Paulo",       state: "SP", colors: { primary: "#E30613", secondary: "#006837" }, stadium: { name: "Canindé",             capacity: 21004 }, reputation: 45, finances: { balance: 3_200_000, monthlyIncome: 1_300_000 } },
+  { id: "pma",  name: "Primavera",       shortName: "PRI", city: "Indaiatuba",      state: "SP", colors: { primary: "#000000", secondary: "#FFD600" }, stadium: { name: "Ítalo Mário Limongi", capacity: 8000  }, reputation: 36, finances: { balance: 2_000_000, monthlyIncome: 1_000_000 } },
+  { id: "cpv",  name: "Capivariano",     shortName: "CAP", city: "Capivari",        state: "SP", colors: { primary: "#E30613", secondary: "#FFFFFF" }, stadium: { name: "Eduardo José Farah",  capacity: 11000 }, reputation: 37, finances: { balance: 2_000_000, monthlyIncome: 1_000_000 } },
+  { id: "nrt",  name: "Noroeste",        shortName: "NOR", city: "Bauru",           state: "SP", colors: { primary: "#E30613", secondary: "#000000" }, stadium: { name: "Alfredo de Castilho",  capacity: 15000 }, reputation: 38, finances: { balance: 2_200_000, monthlyIncome: 1_050_000 } },
+];
