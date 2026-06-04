@@ -31,6 +31,7 @@ import {
 import { renderFinance } from "./ui/views/finance.js";
 import { renderInbox } from "./ui/views/inbox.js";
 import { renderAcademy } from "./ui/views/academy.js";
+import { renderHistory } from "./ui/views/history.js";
 import { renderCalendar } from "./ui/views/calendar.js";
 import { renderCup } from "./ui/views/cup.js";
 import { renderLineup } from "./ui/views/lineup.js";
@@ -64,6 +65,7 @@ const VIEWS = [
   { id: "market",    label: "Mercado",       icon: "💼" },
   { id: "academy",   label: "Base",          icon: "🌱" },
   { id: "finance",   label: "Finanças",      icon: "💰" },
+  { id: "history",   label: "Histórico",     icon: "🏛️" },
   { id: "inbox",     label: "Inbox",         icon: "📰" },
 ];
 
@@ -497,6 +499,7 @@ function render() {
   if (ui.view === "market")    $main.innerHTML = renderMarket();
   if (ui.view === "academy")   $main.innerHTML = renderAcademy();
   if (ui.view === "finance")   $main.innerHTML = renderFinance();
+  if (ui.view === "history")   $main.innerHTML = renderHistory();
   if (ui.view === "inbox")     $main.innerHTML = renderInbox();
 
   // Fade de entrada só quando a aba MUDA (não a cada ação dentro da view,
@@ -551,6 +554,9 @@ function wireView() {
   });
   $main.querySelectorAll("[data-comp]").forEach(btn => {
     btn.onclick = () => { ui.standingsView = btn.dataset.comp; render(); };
+  });
+  $main.querySelectorAll("[data-history-tab]").forEach(btn => {
+    btn.onclick = () => { ui.historyTab = btn.dataset.historyTab; render(); };
   });
   $main.querySelectorAll("[data-formation]").forEach(btn => {
     btn.onclick = () => {
