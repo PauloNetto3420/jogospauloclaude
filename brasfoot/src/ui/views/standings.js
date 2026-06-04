@@ -107,6 +107,8 @@ function renderEstaduais() {
 }
 
 function renderOneEstadual(e, isMine) {
+  if (e.format === "paulista") return renderPaulista(e, isMine);
+
   const groupComps = getEstadualGroupComps(state, e);
   const phaseLabel = {
     groups: "Fase de grupos", semis: "Semifinais", final: "Final", done: "Encerrado",
@@ -184,6 +186,105 @@ function renderEstadualBracketTie(tie) {
       </div>
     </div>
   `;
+}
+
+// Campeonato Paulista: tabela única (formato suíço) + chaveamento de 3 fases.
+function renderPaulista(e, isMine) {
+  const comp = state.competitions.estadual_sp;
+  const phaseLabel = {
+    groups: "1ª Fase", quarters: "Quartas de final", semis: "Semifinais",
+    final: "Final", done: "Encerrado",
+  }[e.phase] || "—";
+
+  const header = `
+    <div style="margin-bottom:8px;padding:8px 4px;border-left:3px solid ${isMine ? "var(--accent)" : "var(--border)"};padding-left:12px">
+      <span style="font-weight:700;font-size:15px">${e.name}</span>
+      <span style="color:var(--muted);font-size:12px;margin-left:8px">${phaseLabel}</span>
+      ${isMine ? `<span class="badge" style="background:var(--accent);color:#000;margin-left:8px">SEU TIME</span>` : ""}
+    </div>`;
+
+  // Tabela única: top 8 (classificados) destacados, 2 últimos (rebaixados) em vermelho.
+  const tableHtml = comp ? `
+    <div class="card">
+      <h3>${e.name} · Classificação Geral</h3>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:8px">
+        16 times · cada um joga 8 jogos (próprio pote + sorteados). Top 8 ao mata-mata · 2 últimos rebaixados.
+      </p>
+      ${renderStandingsTable(comp, { highlightSlots: [8, 2] })}
+    </div>` : "";
+
+  // Bracket do mata-mata (aparece quando criado)
+  const ko = e.knockout;
+  const koHtml = ko ? `
+    <div class="card">
+      <h3>${e.name} · Mata-mata</h3>
+      <div class="bracket" style="grid-template-columns:repeat(3,1fr);max-width:720px">
+        <div class="bracket-col">
+          <div class="bracket-col-title">Quartas</div>
+          <div class="bracket-col-body">
+            ${ko.quarters.map(t => renderPaulistaTie(t)).join("")}
+          </div>
+        </div>
+        <div class="bracket-col">
+          <div class="bracket-col-title">Semis</div>
+          <div class="bracket-col-body">
+            ${ko.semis.length ? ko.semis.map(t => renderPaulistaTie(t)).join("")
+              : `<div class="bracket-tie pending">aguardando quartas</div>`}
+          </div>
+        </div>
+        <div class="bracket-col">
+          <div class="bracket-col-title">Final</div>
+          <div class="bracket-col-body">
+            ${ko.final ? renderPaulistaTie(ko.final) : `<div class="bracket-tie pending">aguardando semis</div>`}
+          </div>
+        </div>
+      </div>
+      ${e.champion ? `<div class="bracket-champion" style="margin-top:12px">🏆 Campeão: ${state.teams[e.champion].name}</div>` : ""}
+    </div>` : "";
+
+  return header + tableHtml + koHtml;
+}
+
+// Tie do Paulista: jogo único (quartas/semis) ou ida-e-volta (final).
+function renderPaulistaTie(tie) {
+  if (tie.legs) {
+    // Final (2 legs): mostra agregado
+    const a = state.teams[tie.teamAId], b = state.teams[tie.teamBId];
+    if (!a || !b) return `<div class="bracket-tie pending">a definir</div>`;
+    const isMine = tie.teamAId === ui.myTeamId || tie.teamBId === ui.myTeamId;
+    const agg = tie.aggregate;
+    const aWon = tie.winnerId === tie.teamAId, bWon = tie.winnerId === tie.teamBId;
+    const sA = agg ? agg.teamA : "—", sB = agg ? agg.teamB : "—";
+    return `
+      <div class="bracket-tie ${isMine ? "mine" : ""}">
+        <div class="bracket-row ${aWon ? "winner" : (bWon ? "loser" : "")}">
+          ${teamLogo(a.id, 14)} <span class="name" title="${a.name}">${a.shortName}</span>
+          <span class="score">${sA}</span>
+        </div>
+        <div class="bracket-row ${bWon ? "winner" : (aWon ? "loser" : "")}">
+          ${teamLogo(b.id, 14)} <span class="name" title="${b.name}">${b.shortName}</span>
+          <span class="score">${sB}</span>
+        </div>
+      </div>`;
+  }
+  // Jogo único
+  const home = state.teams[tie.leg.homeTeamId], away = state.teams[tie.leg.awayTeamId];
+  if (!home || !away) return `<div class="bracket-tie pending">a definir</div>`;
+  const isMine = tie.leg.homeTeamId === ui.myTeamId || tie.leg.awayTeamId === ui.myTeamId;
+  const played = tie.leg.played;
+  const hWon = tie.winnerId === tie.leg.homeTeamId, aWon = tie.winnerId === tie.leg.awayTeamId;
+  const sh = played ? tie.leg.score.home : "—", sa = played ? tie.leg.score.away : "—";
+  return `
+    <div class="bracket-tie ${isMine ? "mine" : ""}">
+      <div class="bracket-row ${hWon ? "winner" : (aWon ? "loser" : "")}">
+        ${teamLogo(home.id, 14)} <span class="name" title="${home.name}">${home.shortName}</span>
+        <span class="score">${sh}</span>
+      </div>
+      <div class="bracket-row ${aWon ? "winner" : (hWon ? "loser" : "")}">
+        ${teamLogo(away.id, 14)} <span class="name" title="${away.name}">${away.shortName}</span>
+        <span class="score">${sa}</span>
+      </div>
+    </div>`;
 }
 
 function renderStandingsSerieC() {

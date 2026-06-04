@@ -18,6 +18,19 @@ import { sortStandings } from "./season.js";
 
 export const PAULISTA_GROUP_ROUNDS = 8; // 1ª fase ocupa rodadas 1..8 da pré-temporada
 
+// Os 4 potes oficiais do Paulista (cabeças de chave por força). 16 times.
+// Times paulistas que existem no jogo mas ficam de fora (Ferroviária, Inter de
+// Limeira, Ituano) seriam a "Série A2" — não disputam a elite por ora.
+export const PAULISTA_POTS = [
+  ["cor", "pal", "spo", "sant"],  // Pote A — grandes
+  ["ber", "nov", "rbb", "mir"],   // Pote B
+  ["gua", "pon", "vel", "por"],   // Pote C
+  ["pma", "cpv", "nrt", "bfc"],   // Pote D
+];
+
+// IDs dos 16 participantes do Paulista (achatado dos potes).
+export const PAULISTA_TEAM_IDS = PAULISTA_POTS.flat();
+
 // Monta a 1ª fase. `pots` é um array de 4 arrays com 4 teamIds cada (potes A-D).
 // Retorna uma competição no mesmo shape de createCompetition (fixtures+standings),
 // pra reaproveitar applyMatchResult / sortStandings.

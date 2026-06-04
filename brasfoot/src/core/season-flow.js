@@ -182,19 +182,20 @@ function finishEstadualPhase() {
     }
   }
 
-  // Premia campeões estaduais
+  // Premia campeões estaduais (valor varia por estadual: e.prize)
   for (const e of Object.values(state.estaduais || {})) {
     if (!e.champion) continue;
     const champ = state.teams[e.champion];
+    const prize = e.prize ?? 3_000_000;
     champ.trophies.push({ competitionId: `estadual_${e.uf.toLowerCase()}`, season: state.season });
-    champ.finances.balance += 3_000_000; // prêmio estadual
+    champ.finances.balance += prize;
     state.inbox = state.inbox || [];
     state.inbox.push({
       id: `n_estadual_${e.uf}_${state.season}`,
       date: state.currentDate, type: "season",
       priority: e.champion === ui.myTeamId ? "high" : "normal",
       subject: `🏆 ${champ.name} é campeão do ${e.name} ${state.season}`,
-      body: `${champ.name} conquistou o ${e.name}. Prêmio: R$ 3.000.000.`,
+      body: `${champ.name} conquistou o ${e.name}. Prêmio: R$ ${fmt(prize)}.`,
       read: false, teamFocus: e.champion,
     });
     log(`🏆 ${champ.shortName} campeão do ${e.name}!`);
