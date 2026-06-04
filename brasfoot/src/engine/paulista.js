@@ -121,6 +121,157 @@ export function getPaulistaRelegated(phase1) {
   return sortStandings(phase1).slice(-2).map(s => s.teamId);
 }
 
+// -------------------- Mata-mata --------------------
+// Rodadas da pré-temporada ocupadas por cada fase:
+//   1ª fase: 1..8 · quartas: 9 · semis: 10 · final ida: 11 · final volta: 12
+export const PAULISTA_QUARTERS_ROUND = 9;
+export const PAULISTA_SEMIS_ROUND = 10;
+export const PAULISTA_FINAL_LEG1_ROUND = 11;
+export const PAULISTA_FINAL_LEG2_ROUND = 12;
+export const PAULISTA_TOTAL_ROUNDS = 12;
+export const PAULISTA_CHAMPION_PRIZE = 5_000_000;
+
+// Estado do mata-mata, guardado em estadual.knockout (paralelo ao formato de grupos).
+// seed = ordem de classificação na 1ª fase (índice 0 = 1º colocado).
+// Quartas: 1×8, 2×7, 3×6, 4×5 (jogo único, mando do melhor).
+export function createPaulistaKnockout(qualified) {
+  // qualified: array de 8 teamIds já em ordem de classificação (0 = melhor)
+  const seedOf = {};
+  qualified.forEach((id, i) => { seedOf[id] = i; });
+
+  const pairs = [[0, 7], [1, 6], [2, 5], [3, 4]];
+  const quarters = pairs.map(([hi, lo], idx) => makeSingleTie(
+    `qf${idx}`, qualified[hi], qualified[lo], PAULISTA_QUARTERS_ROUND
+  ));
+
+  return {
+    seedOf,
+    phase: "quarters",            // quarters | semis | final | done
+    quarters,
+    semis: [],
+    final: null,
+    champion: null,
+  };
+}
+
+// Avança o mata-mata quando a fase corrente termina. Retorna true se mudou de fase.
+export function advancePaulistaKnockout(ko, season) {
+  if (ko.phase === "quarters") {
+    if (!ko.quarters.every(t => t.winnerId)) return false;
+    // Semis: melhores campanhas se cruzam (winner qf0 × winner qf3, qf1 × qf2)
+    const w = ko.quarters.map(t => t.winnerId);
+    ko.semis = [
+      buildSeededTie("sf0", w[0], w[3], ko.seedOf, PAULISTA_SEMIS_ROUND),
+      buildSeededTie("sf1", w[1], w[2], ko.seedOf, PAULISTA_SEMIS_ROUND),
+    ];
+    ko.phase = "semis";
+    return true;
+  }
+  if (ko.phase === "semis") {
+    if (!ko.semis.every(t => t.winnerId)) return false;
+    // Final ida e volta: melhor campanha decide em casa (joga a volta em casa)
+    const [a, b] = ko.semis.map(t => t.winnerId);
+    const bestFirst = ko.seedOf[a] <= ko.seedOf[b] ? a : b;
+    const other = bestFirst === a ? b : a;
+    ko.final = makeTwoLegTie("final", bestFirst, other);
+    ko.phase = "final";
+    return true;
+  }
+  if (ko.phase === "final") {
+    if (!ko.final.winnerId) return false;
+    ko.champion = ko.final.winnerId;
+    ko.phase = "done";
+    return true;
+  }
+  return false;
+}
+
+// Aplica o resultado de um leg do mata-mata. Detecta o tie pelo id do leg.
+// Jogo único → empate vai a pênaltis. Final (2 legs) → decide pelo agregado.
+export function applyPaulistaKnockoutResult(ko, leg, rng) {
+  // procura nas quartas e semis (jogo único)
+  let tie = ko.quarters.find(t => t.leg?.id === leg.id)
+         || ko.semis.find(t => t.leg?.id === leg.id);
+  if (tie) {
+    const { home, away } = leg.score;
+    if (home > away) tie.winnerId = leg.homeTeamId;
+    else if (away > home) tie.winnerId = leg.awayTeamId;
+    else tie.winnerId = rng.chance(0.5) ? leg.homeTeamId : leg.awayTeamId; // pênaltis
+    return;
+  }
+  // final (ida e volta)
+  if (ko.final && ko.final.legs.some(l => l.id === leg.id)) {
+    const [l1, l2] = ko.final.legs;
+    if (!l1.played || !l2.played) return; // só decide com as duas pernas jogadas
+    // teamA é o de melhor campanha (manda na volta = leg2)
+    const aTotal = l1.score.away + l2.score.home;
+    const bTotal = l1.score.home + l2.score.away;
+    if (aTotal > bTotal) ko.final.winnerId = ko.final.teamAId;
+    else if (bTotal > aTotal) ko.final.winnerId = ko.final.teamBId;
+    else ko.final.winnerId = rng.chance(0.5) ? ko.final.teamAId : ko.final.teamBId; // pênaltis
+    ko.final.aggregate = { teamA: aTotal, teamB: bTotal };
+  }
+}
+
+// Retorna os legs do mata-mata agendados pra uma rodada (pra pré-temporada).
+export function getPaulistaKnockoutLegs(ko, round) {
+  const out = [];
+  if (round === PAULISTA_QUARTERS_ROUND) {
+    for (const t of ko.quarters) if (t.leg && !t.leg.played) out.push({ leg: t.leg, tie: t, kind: "qf" });
+  } else if (round === PAULISTA_SEMIS_ROUND) {
+    for (const t of ko.semis) if (t.leg && !t.leg.played) out.push({ leg: t.leg, tie: t, kind: "sf" });
+  } else if (ko.final && (round === PAULISTA_FINAL_LEG1_ROUND || round === PAULISTA_FINAL_LEG2_ROUND)) {
+    for (const l of ko.final.legs) if (!l.played && l.round === round) out.push({ leg: l, tie: ko.final, kind: "final" });
+  }
+  return out;
+}
+
+// -------------------- helpers do mata-mata --------------------
+
+// Tie de jogo único; mando já vem definido (melhor campanha em casa)
+function makeSingleTie(tag, homeId, awayId, round) {
+  return {
+    id: `pauko_${tag}`,
+    teamAId: homeId, teamBId: awayId,
+    leg: makeKoLeg(`${tag}`, homeId, awayId, round),
+    winnerId: null,
+  };
+}
+
+// Tie de jogo único definindo mando pelo seed (menor índice = melhor campanha)
+function buildSeededTie(tag, a, b, seedOf, round) {
+  const homeId = seedOf[a] <= seedOf[b] ? a : b;
+  const awayId = homeId === a ? b : a;
+  return makeSingleTie(tag, homeId, awayId, round);
+}
+
+// Tie de ida e volta. teamA = melhor campanha, joga a VOLTA em casa.
+function makeTwoLegTie(tag, teamAId, teamBId) {
+  return {
+    id: `pauko_${tag}`,
+    teamAId, teamBId,
+    legs: [
+      makeKoLeg(`${tag}1`, teamBId, teamAId, PAULISTA_FINAL_LEG1_ROUND), // ida na casa do B
+      makeKoLeg(`${tag}2`, teamAId, teamBId, PAULISTA_FINAL_LEG2_ROUND), // volta na casa do A
+    ],
+    aggregate: null,
+    winnerId: null,
+  };
+}
+
+function makeKoLeg(tag, homeId, awayId, round) {
+  return {
+    id: `m_pauko_${tag}`,
+    round,
+    homeTeamId: homeId,
+    awayTeamId: awayId,
+    played: false,
+    score: null,
+    events: [],
+    date: null,
+  };
+}
+
 // -------------------- helpers internos --------------------
 
 function emptyStanding(teamId) {
