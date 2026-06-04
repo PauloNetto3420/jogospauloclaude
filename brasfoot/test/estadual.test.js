@@ -53,7 +53,7 @@ function stateWithEstaduais({ seed = 7 } = {}) {
 // createEstaduais não é mais alcançável pelos 4 UFs oficiais — todos viraram
 // formatos especiais. Pra testar o FORMATO DE GRUPOS genérico (fallback),
 // chamamos createOneEstadual diretamente com um UF fictício.
-function groupEstadual({ uf = "PR", n = 6, seed = 7 } = {}) {
+function groupEstadual({ uf = "BA", n = 6, seed = 7 } = {}) {
   const rng = createRng(seed);
   const state = {
     season: 2026, currentDate: "2026-02-01", managedTeamId: null,
@@ -89,7 +89,7 @@ function playEstadualToEnd(state, estadual, rng) {
 
 test("createEstaduais: cria 1 estadual por UF oficial com seu formato", () => {
   const { state } = stateWithEstaduais();
-  const formatByUf = { SP: "paulista", RJ: "carioca", MG: "mineiro", RS: "gaucho" };
+  const formatByUf = { SP: "paulista", RJ: "carioca", MG: "mineiro", RS: "gaucho", PR: "paranaense" };
   for (const uf of ESTADUAL_STATES) {
     assert.ok(state.estaduais[uf], `estadual de ${uf} existe`);
     assert.equal(state.estaduais[uf].uf, uf);
@@ -99,16 +99,16 @@ test("createEstaduais: cria 1 estadual por UF oficial com seu formato", () => {
 });
 
 test("UF de grupos com menos de 4 times não gera estadual", () => {
-  // UF fictício (PR) com apenas 3 times — abaixo do mínimo de 4 do grupo.
-  // (createEstaduais só cria os 4 oficiais; aqui validamos via teamIds < 4.)
+  // UF fictício (BA, não-oficial) com apenas 3 times — abaixo do mínimo de 4.
+  // (createEstaduais só cria os UFs oficiais; aqui validamos via teamIds < 4.)
   const rng = createRng(1);
   const mini = { season: 2026, teams: {}, players: {}, competitions: {} };
   for (let i = 0; i < 3; i++) {
-    const t = createTeam({ id: `PR${i}`, name: `x`, shortName: `x`, city: "c", state: "PR", reputation: 60, colors: { primary: "#000", secondary: "#fff" } });
+    const t = createTeam({ id: `BA${i}`, name: `x`, shortName: `x`, city: "c", state: "BA", reputation: 60, colors: { primary: "#000", secondary: "#fff" } });
     mini.teams[t.id] = t;
   }
   const es = createEstaduais(mini, 2026, rng);
-  assert.equal(es.PR, undefined, "PR não é UF oficial — sem estadual");
+  assert.equal(es.BA, undefined, "BA não é UF oficial — sem estadual");
 });
 
 // Testes do FORMATO DE GRUPOS genérico (fallback), via createOneEstadual.

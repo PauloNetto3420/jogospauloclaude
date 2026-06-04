@@ -38,14 +38,20 @@ import {
   applyGauchoKnockoutResult, getGauchoKnockoutLegs, getGauchoQualified,
   GAUCHO_GROUP_ROUNDS, GAUCHO_TOTAL_ROUNDS, GAUCHO_CHAMPION_PRIZE,
 } from "./gaucho.js";
+import {
+  createParanaensePhase1, createParanaenseKnockout, advanceParanaenseKnockout,
+  applyParanaenseKnockoutResult, getParanaenseKnockoutLegs, getParanaenseQualified,
+  PARANAENSE_GROUP_ROUNDS, PARANAENSE_TOTAL_ROUNDS, PARANAENSE_CHAMPION_PRIZE,
+} from "./paranaense.js";
 
-export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS"];
+export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR"];
 
 const ESTADUAL_NAMES = {
   SP: "Campeonato Paulista",
   RJ: "Campeonato Carioca",
   MG: "Campeonato Mineiro",
   RS: "Campeonato Gaúcho",
+  PR: "Campeonato Paranaense",
 };
 
 // Cria todos os estaduais. Retorna o objeto meta (state.estaduais).
@@ -58,6 +64,7 @@ export function createEstaduais(state, season, rng) {
     if (uf === "RJ") { estaduais.RJ = createCariocaEstadual(state, season, rng); continue; }
     if (uf === "MG") { estaduais.MG = createMineiroEstadual(state, season, rng); continue; }
     if (uf === "RS") { estaduais.RS = createGauchoEstadual(state, season, rng); continue; }
+    if (uf === "PR") { estaduais.PR = createParanaenseEstadual(state, season, rng); continue; }
     const teamIds = Object.values(state.teams)
       .filter(t => t.state === uf)
       .map(t => t.id);
@@ -126,6 +133,27 @@ function createGauchoEstadual(state, season, rng) {
     schedule: {
       groupRounds: GAUCHO_GROUP_ROUNDS,     // 1..6
       finalRound: GAUCHO_TOTAL_ROUNDS,      // 11
+    },
+  };
+}
+
+// Campeonato Paranaense (2 grupos cruzados, TUDO ida/volta). 1ª fase 1..6,
+// quartas 7/8, semis 9/10, final 11/12. format: "paranaense".
+function createParanaenseEstadual(state, season, rng) {
+  const phase1 = createParanaensePhase1({ season, rng });
+  state.competitions.estadual_pr = phase1;
+  return {
+    uf: "PR",
+    name: ESTADUAL_NAMES.PR,
+    format: "paranaense",
+    teams: [...phase1.teams],
+    phase: "groups",            // groups | quarters | semis | final | done
+    knockout: null,
+    champion: null,
+    prize: PARANAENSE_CHAMPION_PRIZE,
+    schedule: {
+      groupRounds: PARANAENSE_GROUP_ROUNDS,   // 1..6
+      finalRound: PARANAENSE_TOTAL_ROUNDS,    // 12
     },
   };
 }
@@ -228,6 +256,7 @@ export function getEstadualMatchesForRound(state, estadual, round) {
   if (estadual.format === "carioca") return getCariocaMatchesForRound(state, estadual, round);
   if (estadual.format === "mineiro") return getMineiroMatchesForRound(state, estadual, round);
   if (estadual.format === "gaucho") return getGauchoMatchesForRound(state, estadual, round);
+  if (estadual.format === "paranaense") return getParanaenseMatchesForRound(state, estadual, round);
 
   const out = [];
   // Grupos
@@ -270,6 +299,7 @@ export function advanceEstadualPhase(state, estadual, season, rng) {
   if (estadual.format === "carioca") return advanceCariocaEstadual(state, estadual, season, rng);
   if (estadual.format === "mineiro") return advanceMineiroEstadual(state, estadual, season, rng);
   if (estadual.format === "gaucho") return advanceGauchoEstadual(state, estadual, season, rng);
+  if (estadual.format === "paranaense") return advanceParanaenseEstadual(state, estadual, season, rng);
 
   if (estadual.phase === "groups") {
     const groupsDone = estadual.groupIds.every(gid =>
@@ -373,6 +403,10 @@ export function applyEstadualKnockoutResult(estadual, leg, rng) {
   }
   if (estadual.format === "gaucho") {
     applyGauchoKnockoutResult(estadual.knockout, leg, rng);
+    return;
+  }
+  if (estadual.format === "paranaense") {
+    applyParanaenseKnockoutResult(estadual.knockout, leg, rng);
     return;
   }
   // Encontra o tie
@@ -561,6 +595,49 @@ function advanceGauchoEstadual(state, estadual, season, rng) {
   const ko = estadual.knockout;
   if (!ko) return;
   advanceGauchoKnockout(ko);
+  estadual.phase = ko.phase;
+  if (ko.phase === "done" && ko.champion && !estadual.champion) {
+    estadual.champion = ko.champion;
+  }
+}
+
+// -------------------- Formato Paranaense (bifurcações) --------------------
+
+// Jogos do Paranaense numa rodada: 1ª fase (1..6) via fixtures; mata-mata
+// (7..12, tudo ida/volta) via knockout. kind "group" pra 1ª fase, senão KO.
+function getParanaenseMatchesForRound(state, estadual, round) {
+  const out = [];
+  if (round <= PARANAENSE_GROUP_ROUNDS) {
+    const comp = state.competitions.estadual_pr;
+    if (comp) {
+      for (const m of comp.fixtures) {
+        if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_pr" });
+      }
+    }
+    return out;
+  }
+  if (!estadual.knockout) return out;
+  for (const entry of getParanaenseKnockoutLegs(estadual.knockout, round)) {
+    const kind = entry.kind === "final" ? "final" : "semi";
+    out.push({ match: entry.leg, kind, tie: entry.tie });
+  }
+  return out;
+}
+
+// Avança o Paranaense: cria o mata-mata ao fim da 1ª fase; delega ao KO.
+function advanceParanaenseEstadual(state, estadual, season, rng) {
+  if (estadual.phase === "groups") {
+    const comp = state.competitions.estadual_pr;
+    if (comp && comp.fixtures.every(m => m.played)) {
+      const qualified = getParanaenseQualified(comp);
+      estadual.knockout = createParanaenseKnockout(qualified);
+      estadual.phase = "quarters";
+    }
+    return;
+  }
+  const ko = estadual.knockout;
+  if (!ko) return;
+  advanceParanaenseKnockout(ko);
   estadual.phase = ko.phase;
   if (ko.phase === "done" && ko.champion && !estadual.champion) {
     estadual.champion = ko.champion;

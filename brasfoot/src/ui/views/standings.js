@@ -10,6 +10,7 @@ import { getEstadualGroupComps } from "../../engine/estadual.js";
 import { getCariocaGroupStandings } from "../../engine/carioca.js";
 import { getMineiroGroupStandings } from "../../engine/mineiro.js";
 import { getGauchoGroupStandings } from "../../engine/gaucho.js";
+import { getParanaenseGroupStandings } from "../../engine/paranaense.js";
 
 export function renderStandings() {
   // Durante a pré-temporada, a aba mostra os estaduais
@@ -114,6 +115,7 @@ function renderOneEstadual(e, isMine) {
   if (e.format === "carioca") return renderCarioca(e, isMine);
   if (e.format === "mineiro") return renderMineiro(e, isMine);
   if (e.format === "gaucho") return renderGaucho(e, isMine);
+  if (e.format === "paranaense") return renderParanaense(e, isMine);
 
   const groupComps = getEstadualGroupComps(state, e);
   const phaseLabel = {
@@ -432,6 +434,59 @@ function renderGaucho(e, isMine) {
       <div class="bracket" style="grid-template-columns:repeat(3,1fr);max-width:720px">
         <div class="bracket-col">
           <div class="bracket-col-title">Quartas</div>
+          <div class="bracket-col-body">${ko.quarters.map(t => renderPaulistaTie(t)).join("")}</div>
+        </div>
+        <div class="bracket-col">
+          <div class="bracket-col-title">Semis (ida/volta)</div>
+          <div class="bracket-col-body">
+            ${ko.semis.length ? ko.semis.map(t => renderPaulistaTie(t)).join("")
+              : `<div class="bracket-tie pending">aguardando quartas</div>`}
+          </div>
+        </div>
+        <div class="bracket-col">
+          <div class="bracket-col-title">Final (ida/volta)</div>
+          <div class="bracket-col-body">
+            ${ko.final ? renderPaulistaTie(ko.final) : `<div class="bracket-tie pending">aguardando semis</div>`}
+          </div>
+        </div>
+      </div>
+      ${e.champion ? `<div class="bracket-champion" style="margin-top:12px">🏆 Campeão: ${state.teams[e.champion].name}</div>` : ""}
+    </div>` : "";
+
+  return header + groupsHtml + koHtml;
+}
+
+function renderParanaense(e, isMine) {
+  const comp = state.competitions.estadual_pr;
+  const phaseLabel = {
+    groups: "1ª Fase (grupos)", quarters: "Quartas de final",
+    semis: "Semifinais", final: "Final", done: "Encerrado",
+  }[e.phase] || "—";
+
+  const header = `
+    <div style="margin-bottom:8px;padding:8px 4px;border-left:3px solid ${isMine ? "var(--accent)" : "var(--border)"};padding-left:12px">
+      <span style="font-weight:700;font-size:15px">${e.name}</span>
+      <span style="color:var(--muted);font-size:12px;margin-left:8px">${phaseLabel}</span>
+      ${isMine ? `<span class="badge" style="background:var(--accent);color:var(--accent-fg);margin-left:8px">SEU TIME</span>` : ""}
+    </div>`;
+
+  const groupCard = (label) => {
+    if (!comp) return "";
+    const sorted = getParanaenseGroupStandings(comp, label);
+    const shim = { ...comp, standings: sorted };
+    return `<div class="card"><h3>Grupo ${label}</h3>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:8px">Top 4 avançam ao mata-mata.</p>
+      ${renderStandingsTable(shim, { highlightSlots: [4, 0] })}</div>`;
+  };
+  const groupsHtml = `<div class="grid-2">${groupCard("A")}${groupCard("B")}</div>`;
+
+  const ko = e.knockout;
+  const koHtml = ko ? `
+    <div class="card">
+      <h3>${e.name} · Mata-mata (tudo ida/volta)</h3>
+      <div class="bracket" style="grid-template-columns:repeat(3,1fr);max-width:720px">
+        <div class="bracket-col">
+          <div class="bracket-col-title">Quartas (ida/volta)</div>
           <div class="bracket-col-body">${ko.quarters.map(t => renderPaulistaTie(t)).join("")}</div>
         </div>
         <div class="bracket-col">
