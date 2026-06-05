@@ -65,8 +65,13 @@ import {
   applyAlagoanoKnockoutResult, getAlagoanoKnockoutLegs, getAlagoanoQualified,
   ALAGOANO_PHASE1_ROUNDS, ALAGOANO_TOTAL_ROUNDS, ALAGOANO_CHAMPION_PRIZE,
 } from "./alagoano.js";
+import {
+  createGoianoPhase1, createGoianoKnockout, advanceGoianoKnockout,
+  applyGoianoKnockoutResult, getGoianoKnockoutLegs, getGoianoQualified,
+  GOIANO_PHASE1_ROUNDS, GOIANO_TOTAL_ROUNDS, GOIANO_CHAMPION_PRIZE,
+} from "./goiano.js";
 
-export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL"];
+export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO"];
 
 const ESTADUAL_NAMES = {
   SP: "Campeonato Paulista",
@@ -78,6 +83,7 @@ const ESTADUAL_NAMES = {
   CE: "Campeonato Cearense",
   PE: "Campeonato Pernambucano",
   AL: "Campeonato Alagoano",
+  GO: "Campeonato Goiano",
 };
 
 // Cria todos os estaduais. Retorna o objeto meta (state.estaduais).
@@ -95,6 +101,7 @@ export function createEstaduais(state, season, rng) {
     if (uf === "CE") { estaduais.CE = createCearenseEstadual(state, season, rng); continue; }
     if (uf === "PE") { estaduais.PE = createPernambucanoEstadual(state, season, rng); continue; }
     if (uf === "AL") { estaduais.AL = createAlagoanoEstadual(state, season, rng); continue; }
+    if (uf === "GO") { estaduais.GO = createGoianoEstadual(state, season, rng); continue; }
     const teamIds = Object.values(state.teams)
       .filter(t => t.state === uf)
       .map(t => t.id);
@@ -272,6 +279,27 @@ function createAlagoanoEstadual(state, season, rng) {
   };
 }
 
+// Campeonato Goiano (3 grupos cruzados em 8 rodadas + mata-mata top 8).
+// 1ª fase 1..8, quartas 9/10, semis 11/12, final 13/14. format: "goiano".
+function createGoianoEstadual(state, season, rng) {
+  const phase1 = createGoianoPhase1({ season, rng });
+  state.competitions.estadual_go = phase1;
+  return {
+    uf: "GO",
+    name: ESTADUAL_NAMES.GO,
+    format: "goiano",
+    teams: [...phase1.teams],
+    phase: "groups",            // groups | quarters | semis | final | done
+    knockout: null,
+    champion: null,
+    prize: GOIANO_CHAMPION_PRIZE,
+    schedule: {
+      groupRounds: GOIANO_PHASE1_ROUNDS,   // 1..8
+      finalRound: GOIANO_TOTAL_ROUNDS,     // 14
+    },
+  };
+}
+
 // Campeonato Paulista (formato suíço). Monta a 1ª fase a partir dos potes
 // oficiais e registra a competição. O mata-mata é criado quando a 1ª fase
 // termina (advanceEstadualPhase). Marcado com format: "paulista" pra que os
@@ -375,6 +403,7 @@ export function getEstadualMatchesForRound(state, estadual, round) {
   if (estadual.format === "cearense") return getCearenseMatchesForRound(state, estadual, round);
   if (estadual.format === "pernambucano") return getPernambucanoMatchesForRound(state, estadual, round);
   if (estadual.format === "alagoano") return getAlagoanoMatchesForRound(state, estadual, round);
+  if (estadual.format === "goiano") return getGoianoMatchesForRound(state, estadual, round);
 
   const out = [];
   // Grupos
@@ -422,6 +451,7 @@ export function advanceEstadualPhase(state, estadual, season, rng) {
   if (estadual.format === "cearense") return advanceCearenseEstadual(state, estadual, season, rng);
   if (estadual.format === "pernambucano") return advancePernambucanoEstadual(state, estadual, season, rng);
   if (estadual.format === "alagoano") return advanceAlagoanoEstadual(state, estadual, season, rng);
+  if (estadual.format === "goiano") return advanceGoianoEstadual(state, estadual, season, rng);
 
   if (estadual.phase === "groups") {
     const groupsDone = estadual.groupIds.every(gid =>
@@ -545,6 +575,10 @@ export function applyEstadualKnockoutResult(estadual, leg, rng) {
   }
   if (estadual.format === "alagoano") {
     applyAlagoanoKnockoutResult(estadual.knockout, leg, rng);
+    return;
+  }
+  if (estadual.format === "goiano") {
+    applyGoianoKnockoutResult(estadual.knockout, leg, rng);
     return;
   }
   // Encontra o tie
@@ -958,6 +992,47 @@ function advanceAlagoanoEstadual(state, estadual, season, rng) {
   const ko = estadual.knockout;
   if (!ko) return;
   advanceAlagoanoKnockout(ko);
+  estadual.phase = ko.phase;
+  if (ko.phase === "done" && ko.champion && !estadual.champion) {
+    estadual.champion = ko.champion;
+  }
+}
+
+// -------------------- Formato Goiano (bifurcações) --------------------
+
+// Jogos do Goiano numa rodada: 1ª fase (1..8, grupos cruzados); mata-mata
+// (9..14: quartas/semis/final ida/volta) via knockout.
+function getGoianoMatchesForRound(state, estadual, round) {
+  const out = [];
+  if (round <= GOIANO_PHASE1_ROUNDS) {
+    const comp = state.competitions.estadual_go;
+    if (comp) for (const m of comp.fixtures) {
+      if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_go" });
+    }
+    return out;
+  }
+  if (!estadual.knockout) return out;
+  for (const entry of getGoianoKnockoutLegs(estadual.knockout, round)) {
+    const kind = entry.kind === "final" ? "final" : "semi";
+    out.push({ match: entry.leg, kind, tie: entry.tie });
+  }
+  return out;
+}
+
+// Avança o Goiano: cria o mata-mata (top 8 geral) ao fim da 1ª fase.
+function advanceGoianoEstadual(state, estadual, season, rng) {
+  if (estadual.phase === "groups") {
+    const comp = state.competitions.estadual_go;
+    if (comp && comp.fixtures.every(m => m.played)) {
+      const qualified = getGoianoQualified(comp, state.teams);
+      estadual.knockout = createGoianoKnockout(qualified);
+      estadual.phase = "quarters";
+    }
+    return;
+  }
+  const ko = estadual.knockout;
+  if (!ko) return;
+  advanceGoianoKnockout(ko);
   estadual.phase = ko.phase;
   if (ko.phase === "done" && ko.champion && !estadual.champion) {
     estadual.champion = ko.champion;

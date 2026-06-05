@@ -15,6 +15,7 @@ import { getBaianoStandings } from "../../engine/baiano.js";
 import { getCearenseGroupStandings, getCearensePhase2Standings } from "../../engine/cearense.js";
 import { getPernambucanoStandings } from "../../engine/pernambucano.js";
 import { getAlagoanoStandings } from "../../engine/alagoano.js";
+import { getGoianoGroupStandings, getGoianoOverallStandings } from "../../engine/goiano.js";
 
 export function renderStandings() {
   // Durante a pré-temporada, a aba mostra os estaduais
@@ -124,6 +125,7 @@ function renderOneEstadual(e, isMine) {
   if (e.format === "cearense") return renderCearense(e, isMine);
   if (e.format === "pernambucano") return renderPernambucano(e, isMine);
   if (e.format === "alagoano") return renderAlagoano(e, isMine);
+  if (e.format === "goiano") return renderGoiano(e, isMine);
 
   const groupComps = getEstadualGroupComps(state, e);
   const phaseLabel = {
@@ -716,6 +718,66 @@ function renderAlagoano(e, isMine) {
     </div>` : "";
 
   return header + tableHtml + koHtml;
+}
+
+function renderGoiano(e, isMine) {
+  const comp = state.competitions.estadual_go;
+  const phaseLabel = {
+    groups: "1ª Fase (3 grupos cruzados)", quarters: "Quartas de final",
+    semis: "Semifinais", final: "Final", done: "Encerrado",
+  }[e.phase] || "—";
+
+  const header = `
+    <div style="margin-bottom:8px;padding:8px 4px;border-left:3px solid ${isMine ? "var(--accent)" : "var(--border)"};padding-left:12px">
+      <span style="font-weight:700;font-size:15px">${e.name}</span>
+      <span style="color:var(--muted);font-size:12px;margin-left:8px">${phaseLabel}</span>
+      ${isMine ? `<span class="badge" style="background:var(--accent);color:var(--accent-fg);margin-left:8px">SEU TIME</span>` : ""}
+    </div>`;
+
+  // Grupos A/B/C (só posicionamento; classificação é geral).
+  const groupCard = (label) => {
+    if (!comp) return "";
+    const sorted = getGoianoGroupStandings(comp, label);
+    return `<div class="card"><h3>Grupo ${label}</h3>
+      ${renderStandingsTable({ ...comp, standings: sorted }, {})}</div>`;
+  };
+  const groupsHtml = `<div class="grid-3">${groupCard("A")}${groupCard("B")}${groupCard("C")}</div>`;
+
+  // Classificação GERAL — top 8 ao mata-mata.
+  const overallHtml = comp ? `
+    <div class="card" style="margin-top:16px">
+      <h3>Classificação Geral</h3>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:8px">Os <b style="color:var(--accent)">8 melhores</b> da campanha geral avançam ao mata-mata.</p>
+      ${renderStandingsTable({ ...comp, standings: getGoianoOverallStandings(comp, state.teams) }, { highlightSlots: [8, 0] })}
+    </div>` : "";
+
+  const ko = e.knockout;
+  const koHtml = ko ? `
+    <div class="card" style="margin-top:16px">
+      <h3>${e.name} · Mata-mata (ida/volta)</h3>
+      <div class="bracket" style="grid-template-columns:repeat(3,1fr);max-width:720px">
+        <div class="bracket-col">
+          <div class="bracket-col-title">Quartas</div>
+          <div class="bracket-col-body">${ko.quarters.map(t => renderPaulistaTie(t)).join("")}</div>
+        </div>
+        <div class="bracket-col">
+          <div class="bracket-col-title">Semis</div>
+          <div class="bracket-col-body">
+            ${ko.semis.length ? ko.semis.map(t => renderPaulistaTie(t)).join("")
+              : `<div class="bracket-tie pending">aguardando quartas</div>`}
+          </div>
+        </div>
+        <div class="bracket-col">
+          <div class="bracket-col-title">Final</div>
+          <div class="bracket-col-body">
+            ${ko.final ? renderPaulistaTie(ko.final) : `<div class="bracket-tie pending">aguardando semis</div>`}
+          </div>
+        </div>
+      </div>
+      ${e.champion ? `<div class="bracket-champion" style="margin-top:12px">🏆 Campeão: ${state.teams[e.champion].name}</div>` : ""}
+    </div>` : "";
+
+  return header + groupsHtml + overallHtml + koHtml;
 }
 
 function renderStandingsSerieC() {
