@@ -60,8 +60,13 @@ import {
   applyPernambucanoKnockoutResult, getPernambucanoKnockoutLegs, getPernambucanoQualified,
   PERNAMBUCANO_PHASE1_ROUNDS, PERNAMBUCANO_TOTAL_ROUNDS, PERNAMBUCANO_CHAMPION_PRIZE,
 } from "./pernambucano.js";
+import {
+  createAlagoanoPhase1, createAlagoanoKnockout, advanceAlagoanoKnockout,
+  applyAlagoanoKnockoutResult, getAlagoanoKnockoutLegs, getAlagoanoQualified,
+  ALAGOANO_PHASE1_ROUNDS, ALAGOANO_TOTAL_ROUNDS, ALAGOANO_CHAMPION_PRIZE,
+} from "./alagoano.js";
 
-export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE"];
+export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL"];
 
 const ESTADUAL_NAMES = {
   SP: "Campeonato Paulista",
@@ -72,6 +77,7 @@ const ESTADUAL_NAMES = {
   BA: "Campeonato Baiano",
   CE: "Campeonato Cearense",
   PE: "Campeonato Pernambucano",
+  AL: "Campeonato Alagoano",
 };
 
 // Cria todos os estaduais. Retorna o objeto meta (state.estaduais).
@@ -88,6 +94,7 @@ export function createEstaduais(state, season, rng) {
     if (uf === "BA") { estaduais.BA = createBaianoEstadual(state, season, rng); continue; }
     if (uf === "CE") { estaduais.CE = createCearenseEstadual(state, season, rng); continue; }
     if (uf === "PE") { estaduais.PE = createPernambucanoEstadual(state, season, rng); continue; }
+    if (uf === "AL") { estaduais.AL = createAlagoanoEstadual(state, season, rng); continue; }
     const teamIds = Object.values(state.teams)
       .filter(t => t.state === uf)
       .map(t => t.id);
@@ -244,6 +251,27 @@ function createPernambucanoEstadual(state, season, rng) {
   };
 }
 
+// Campeonato Alagoano (liga turno único + semis/final ida/volta).
+// 1ª fase 1..7, semis 8/9, final 10/11. format: "alagoano".
+function createAlagoanoEstadual(state, season, rng) {
+  const phase1 = createAlagoanoPhase1({ season });
+  state.competitions.estadual_al = phase1;
+  return {
+    uf: "AL",
+    name: ESTADUAL_NAMES.AL,
+    format: "alagoano",
+    teams: [...phase1.teams],
+    phase: "league",            // league | semis | final | done
+    knockout: null,
+    champion: null,
+    prize: ALAGOANO_CHAMPION_PRIZE,
+    schedule: {
+      groupRounds: ALAGOANO_PHASE1_ROUNDS,   // 1..7
+      finalRound: ALAGOANO_TOTAL_ROUNDS,     // 11
+    },
+  };
+}
+
 // Campeonato Paulista (formato suíço). Monta a 1ª fase a partir dos potes
 // oficiais e registra a competição. O mata-mata é criado quando a 1ª fase
 // termina (advanceEstadualPhase). Marcado com format: "paulista" pra que os
@@ -346,6 +374,7 @@ export function getEstadualMatchesForRound(state, estadual, round) {
   if (estadual.format === "baiano") return getBaianoMatchesForRound(state, estadual, round);
   if (estadual.format === "cearense") return getCearenseMatchesForRound(state, estadual, round);
   if (estadual.format === "pernambucano") return getPernambucanoMatchesForRound(state, estadual, round);
+  if (estadual.format === "alagoano") return getAlagoanoMatchesForRound(state, estadual, round);
 
   const out = [];
   // Grupos
@@ -392,6 +421,7 @@ export function advanceEstadualPhase(state, estadual, season, rng) {
   if (estadual.format === "baiano") return advanceBaianoEstadual(state, estadual, season, rng);
   if (estadual.format === "cearense") return advanceCearenseEstadual(state, estadual, season, rng);
   if (estadual.format === "pernambucano") return advancePernambucanoEstadual(state, estadual, season, rng);
+  if (estadual.format === "alagoano") return advanceAlagoanoEstadual(state, estadual, season, rng);
 
   if (estadual.phase === "groups") {
     const groupsDone = estadual.groupIds.every(gid =>
@@ -511,6 +541,10 @@ export function applyEstadualKnockoutResult(estadual, leg, rng) {
   }
   if (estadual.format === "pernambucano") {
     applyPernambucanoKnockoutResult(estadual.knockout, leg, rng);
+    return;
+  }
+  if (estadual.format === "alagoano") {
+    applyAlagoanoKnockoutResult(estadual.knockout, leg, rng);
     return;
   }
   // Encontra o tie
@@ -883,6 +917,47 @@ function advancePernambucanoEstadual(state, estadual, season, rng) {
   const ko = estadual.knockout;
   if (!ko) return;
   advancePernambucanoKnockout(ko);
+  estadual.phase = ko.phase;
+  if (ko.phase === "done" && ko.champion && !estadual.champion) {
+    estadual.champion = ko.champion;
+  }
+}
+
+// -------------------- Formato Alagoano (bifurcações) --------------------
+
+// Jogos do Alagoano numa rodada: 1ª fase (1..7, pontos corridos); mata-mata
+// (8..11: semis e final ida/volta) via knockout.
+function getAlagoanoMatchesForRound(state, estadual, round) {
+  const out = [];
+  if (round <= ALAGOANO_PHASE1_ROUNDS) {
+    const comp = state.competitions.estadual_al;
+    if (comp) for (const m of comp.fixtures) {
+      if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_al" });
+    }
+    return out;
+  }
+  if (!estadual.knockout) return out;
+  for (const entry of getAlagoanoKnockoutLegs(estadual.knockout, round)) {
+    const kind = entry.kind === "final" ? "final" : "semi";
+    out.push({ match: entry.leg, kind, tie: entry.tie });
+  }
+  return out;
+}
+
+// Avança o Alagoano: cria o mata-mata (top 4) ao fim da 1ª fase; delega ao KO.
+function advanceAlagoanoEstadual(state, estadual, season, rng) {
+  if (estadual.phase === "league") {
+    const comp = state.competitions.estadual_al;
+    if (comp && comp.fixtures.every(m => m.played)) {
+      const { semifinalists } = getAlagoanoQualified(comp, state.teams);
+      estadual.knockout = createAlagoanoKnockout(semifinalists);
+      estadual.phase = "semis";
+    }
+    return;
+  }
+  const ko = estadual.knockout;
+  if (!ko) return;
+  advanceAlagoanoKnockout(ko);
   estadual.phase = ko.phase;
   if (ko.phase === "done" && ko.champion && !estadual.champion) {
     estadual.champion = ko.champion;
