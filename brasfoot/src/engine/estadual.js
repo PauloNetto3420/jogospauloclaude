@@ -80,8 +80,13 @@ import {
   applyParaenseKnockoutResult, getParaenseKnockoutLegs, getParaenseQualified,
   PARAENSE_GROUP_ROUNDS, PARAENSE_TOTAL_ROUNDS, PARAENSE_CHAMPION_PRIZE,
 } from "./paraense.js";
+import {
+  createAcreanoPhase1, createAcreanoKnockout, advanceAcreanoKnockout,
+  applyAcreanoKnockoutResult, getAcreanoKnockoutLegs, getAcreanoQualified,
+  ACREANO_PHASE1_ROUNDS, ACREANO_TOTAL_ROUNDS, ACREANO_CHAMPION_PRIZE,
+} from "./acreano.js";
 
-export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA"];
+export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA", "AC"];
 
 const ESTADUAL_NAMES = {
   SP: "Campeonato Paulista",
@@ -96,6 +101,7 @@ const ESTADUAL_NAMES = {
   GO: "Campeonato Goiano",
   SC: "Campeonato Catarinense",
   PA: "Campeonato Paraense",
+  AC: "Campeonato Acreano",
 };
 
 // Cria todos os estaduais. Retorna o objeto meta (state.estaduais).
@@ -116,6 +122,7 @@ export function createEstaduais(state, season, rng) {
     if (uf === "GO") { estaduais.GO = createGoianoEstadual(state, season, rng); continue; }
     if (uf === "SC") { estaduais.SC = createCatarinenseEstadual(state, season, rng); continue; }
     if (uf === "PA") { estaduais.PA = createParaenseEstadual(state, season, rng); continue; }
+    if (uf === "AC") { estaduais.AC = createAcreanoEstadual(state, season, rng); continue; }
     const teamIds = Object.values(state.teams)
       .filter(t => t.state === uf)
       .map(t => t.id);
@@ -356,6 +363,27 @@ function createParaenseEstadual(state, season, rng) {
   };
 }
 
+// Campeonato Acreano (liga turno único + semis ida/volta com vantagem +
+// final jogo único). 1ª fase 1..7, semis 8/9, final 10. format: "acreano".
+function createAcreanoEstadual(state, season, rng) {
+  const phase1 = createAcreanoPhase1({ season });
+  state.competitions.estadual_ac = phase1;
+  return {
+    uf: "AC",
+    name: ESTADUAL_NAMES.AC,
+    format: "acreano",
+    teams: [...phase1.teams],
+    phase: "league",            // league | semis | final | done
+    knockout: null,
+    champion: null,
+    prize: ACREANO_CHAMPION_PRIZE,
+    schedule: {
+      groupRounds: ACREANO_PHASE1_ROUNDS,   // 1..7
+      finalRound: ACREANO_TOTAL_ROUNDS,     // 10
+    },
+  };
+}
+
 // Campeonato Paulista (formato suíço). Monta a 1ª fase a partir dos potes
 // oficiais e registra a competição. O mata-mata é criado quando a 1ª fase
 // termina (advanceEstadualPhase). Marcado com format: "paulista" pra que os
@@ -462,6 +490,7 @@ export function getEstadualMatchesForRound(state, estadual, round) {
   if (estadual.format === "goiano") return getGoianoMatchesForRound(state, estadual, round);
   if (estadual.format === "catarinense") return getCatarinenseMatchesForRound(state, estadual, round);
   if (estadual.format === "paraense") return getParaenseMatchesForRound(state, estadual, round);
+  if (estadual.format === "acreano") return getAcreanoMatchesForRound(state, estadual, round);
 
   const out = [];
   // Grupos
@@ -512,6 +541,7 @@ export function advanceEstadualPhase(state, estadual, season, rng) {
   if (estadual.format === "goiano") return advanceGoianoEstadual(state, estadual, season, rng);
   if (estadual.format === "catarinense") return advanceCatarinenseEstadual(state, estadual, season, rng);
   if (estadual.format === "paraense") return advanceParaenseEstadual(state, estadual, season, rng);
+  if (estadual.format === "acreano") return advanceAcreanoEstadual(state, estadual, season, rng);
 
   if (estadual.phase === "groups") {
     const groupsDone = estadual.groupIds.every(gid =>
@@ -647,6 +677,10 @@ export function applyEstadualKnockoutResult(estadual, leg, rng) {
   }
   if (estadual.format === "paraense") {
     applyParaenseKnockoutResult(estadual.knockout, leg, rng);
+    return;
+  }
+  if (estadual.format === "acreano") {
+    applyAcreanoKnockoutResult(estadual.knockout, leg, rng);
     return;
   }
   // Encontra o tie
@@ -1183,6 +1217,47 @@ function advanceParaenseEstadual(state, estadual, season, rng) {
   const ko = estadual.knockout;
   if (!ko) return;
   advanceParaenseKnockout(ko);
+  estadual.phase = ko.phase;
+  if (ko.phase === "done" && ko.champion && !estadual.champion) {
+    estadual.champion = ko.champion;
+  }
+}
+
+// -------------------- Formato Acreano (bifurcações) --------------------
+
+// Jogos do Acreano numa rodada: 1ª fase (1..7, pontos corridos); mata-mata
+// (8/9 semis ida/volta; 10 final jogo único) via knockout.
+function getAcreanoMatchesForRound(state, estadual, round) {
+  const out = [];
+  if (round <= ACREANO_PHASE1_ROUNDS) {
+    const comp = state.competitions.estadual_ac;
+    if (comp) for (const m of comp.fixtures) {
+      if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_ac" });
+    }
+    return out;
+  }
+  if (!estadual.knockout) return out;
+  for (const entry of getAcreanoKnockoutLegs(estadual.knockout, round)) {
+    const kind = entry.kind === "final" ? "final" : "semi";
+    out.push({ match: entry.leg, kind, tie: entry.tie });
+  }
+  return out;
+}
+
+// Avança o Acreano: cria o mata-mata (top 4) ao fim da 1ª fase.
+function advanceAcreanoEstadual(state, estadual, season, rng) {
+  if (estadual.phase === "league") {
+    const comp = state.competitions.estadual_ac;
+    if (comp && comp.fixtures.every(m => m.played)) {
+      const qualified = getAcreanoQualified(comp, state.teams);
+      estadual.knockout = createAcreanoKnockout(qualified);
+      estadual.phase = "semis";
+    }
+    return;
+  }
+  const ko = estadual.knockout;
+  if (!ko) return;
+  advanceAcreanoKnockout(ko);
   estadual.phase = ko.phase;
   if (ko.phase === "done" && ko.champion && !estadual.champion) {
     estadual.champion = ko.champion;
