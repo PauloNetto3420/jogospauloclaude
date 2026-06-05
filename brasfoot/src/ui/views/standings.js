@@ -22,6 +22,7 @@ import { getAcreanoStandings } from "../../engine/acreano.js";
 import { getAmazonenseStandings } from "../../engine/amazonense.js";
 import { getAmapaenseStandings } from "../../engine/amapaense.js";
 import { getRondonienseStandings } from "../../engine/rondoniense.js";
+import { getRoraimenseStandings } from "../../engine/roraimense.js";
 
 export function renderStandings() {
   // Durante a pré-temporada, a aba mostra os estaduais
@@ -138,6 +139,7 @@ function renderOneEstadual(e, isMine) {
   if (e.format === "amazonense") return renderAmazonense(e, isMine);
   if (e.format === "amapaense") return renderAmapaense(e, isMine);
   if (e.format === "rondoniense") return renderRondoniense(e, isMine);
+  if (e.format === "roraimense") return renderRoraimense(e, isMine);
 
   const groupComps = getEstadualGroupComps(state, e);
   const phaseLabel = {
@@ -1063,6 +1065,49 @@ function renderRondoniense(e, isMine) {
       <div class="bracket" style="grid-template-columns:repeat(2,1fr);max-width:520px">
         <div class="bracket-col">
           <div class="bracket-col-title">Semis (1×4, 2×3)</div>
+          <div class="bracket-col-body">${ko.semis.map(t => renderPaulistaTie(t)).join("")}</div>
+        </div>
+        <div class="bracket-col">
+          <div class="bracket-col-title">Final</div>
+          <div class="bracket-col-body">
+            ${ko.final ? renderPaulistaTie(ko.final) : `<div class="bracket-tie pending">aguardando semis</div>`}
+          </div>
+        </div>
+      </div>
+      ${e.champion ? `<div class="bracket-champion" style="margin-top:12px">🏆 Campeão: ${state.teams[e.champion].name}</div>` : ""}
+    </div>` : "";
+
+  return header + tableHtml + koHtml;
+}
+
+function renderRoraimense(e, isMine) {
+  const comp = state.competitions.estadual_rr;
+  const phaseLabel = {
+    league: "1ª Fase (pontos corridos)", semis: "Semifinais",
+    final: "Final", done: "Encerrado",
+  }[e.phase] || "—";
+
+  const header = `
+    <div style="margin-bottom:8px;padding:8px 4px;border-left:3px solid ${isMine ? "var(--accent)" : "var(--border)"};padding-left:12px">
+      <span style="font-weight:700;font-size:15px">${e.name}</span>
+      <span style="color:var(--muted);font-size:12px;margin-left:8px">${phaseLabel}</span>
+      ${isMine ? `<span class="badge" style="background:var(--accent);color:var(--accent-fg);margin-left:8px">SEU TIME</span>` : ""}
+    </div>`;
+
+  const tableHtml = comp ? `
+    <div class="card">
+      <h3>Classificação · turno único</h3>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:8px">Os <b style="color:var(--accent)">4 primeiros</b> avançam: semis e final em jogo único (mando do melhor, pênaltis no empate).</p>
+      ${renderStandingsTable({ ...comp, standings: getRoraimenseStandings(comp, state.teams) }, { highlightSlots: [4, 0] })}
+    </div>` : "";
+
+  const ko = e.knockout;
+  const koHtml = ko ? `
+    <div class="card" style="margin-top:16px">
+      <h3>${e.name} · Mata-mata (jogo único)</h3>
+      <div class="bracket" style="grid-template-columns:repeat(2,1fr);max-width:520px">
+        <div class="bracket-col">
+          <div class="bracket-col-title">Semifinais</div>
           <div class="bracket-col-body">${ko.semis.map(t => renderPaulistaTie(t)).join("")}</div>
         </div>
         <div class="bracket-col">
