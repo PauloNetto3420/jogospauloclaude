@@ -19,6 +19,7 @@ import { getGoianoGroupStandings, getGoianoOverallStandings } from "../../engine
 import { getCatarinenseGroupStandings } from "../../engine/catarinense.js";
 import { getParaenseGroupStandings, getParaenseOverallStandings } from "../../engine/paraense.js";
 import { getAcreanoStandings } from "../../engine/acreano.js";
+import { getAmazonenseStandings } from "../../engine/amazonense.js";
 
 export function renderStandings() {
   // Durante a pré-temporada, a aba mostra os estaduais
@@ -132,6 +133,7 @@ function renderOneEstadual(e, isMine) {
   if (e.format === "catarinense") return renderCatarinense(e, isMine);
   if (e.format === "paraense") return renderParaense(e, isMine);
   if (e.format === "acreano") return renderAcreano(e, isMine);
+  if (e.format === "amazonense") return renderAmazonense(e, isMine);
 
   const groupComps = getEstadualGroupComps(state, e);
   const phaseLabel = {
@@ -938,6 +940,52 @@ function renderAcreano(e, isMine) {
     </div>` : "";
 
   return header + tableHtml + koHtml;
+}
+
+function renderAmazonense(e, isMine) {
+  const c1 = state.competitions.estadual_am;
+  const c2 = state.competitions.estadual_am_t2;
+  const phaseLabel = {
+    t1_groups: "1º Turno (fase)", t1_ko: "1º Turno (mata-mata)",
+    t2_groups: "2º Turno (fase)", t2_ko: "2º Turno (mata-mata)",
+    grand_final: "Grande Final", done: "Encerrado",
+  }[e.phase] || "—";
+
+  const header = `
+    <div style="margin-bottom:8px;padding:8px 4px;border-left:3px solid ${isMine ? "var(--accent)" : "var(--border)"};padding-left:12px">
+      <span style="font-weight:700;font-size:15px">${e.name}</span>
+      <span style="color:var(--muted);font-size:12px;margin-left:8px">${phaseLabel}</span>
+      ${isMine ? `<span class="badge" style="background:var(--accent);color:var(--accent-fg);margin-left:8px">SEU TIME</span>` : ""}
+    </div>`;
+
+  const turnoBlock = (comp, ko, title, champion) => {
+    if (!comp) return "";
+    const table = `<div class="card"><h3>${title} · classificação</h3>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:8px">Top 4 ao mata-mata (semis 1×4/2×3 e final, jogo único).${champion ? ` 🏆 Campeão do turno: <b>${state.teams[champion].name}</b>` : ""}</p>
+      ${renderStandingsTable({ ...comp, standings: getAmazonenseStandings(comp, state.teams) }, { highlightSlots: [4, 0] })}</div>`;
+    const bracket = ko ? `<div class="card" style="margin-top:10px"><h3>${title} · mata-mata</h3>
+      <div class="bracket" style="grid-template-columns:repeat(2,1fr);max-width:520px">
+        <div class="bracket-col"><div class="bracket-col-title">Semis</div><div class="bracket-col-body">${ko.semis.map(t => renderPaulistaTie(t)).join("")}</div></div>
+        <div class="bracket-col"><div class="bracket-col-title">Final do turno</div><div class="bracket-col-body">${ko.final ? renderPaulistaTie(ko.final) : `<div class="bracket-tie pending">aguardando semis</div>`}</div></div>
+      </div></div>` : "";
+    return table + bracket;
+  };
+
+  const t1Html = turnoBlock(c1, e.t1ko, "1º Turno", e.t1Champion);
+  const t2Html = c2 ? `<div style="margin-top:16px">${turnoBlock(c2, e.t2ko, "2º Turno", e.t2Champion)}</div>` : "";
+
+  let gfHtml = "";
+  if (e.t1Champion && e.t2Champion && e.t1Champion === e.t2Champion) {
+    gfHtml = `<div class="card bracket-champion" style="margin-top:16px">🏆 ${state.teams[e.champion || e.t1Champion].name} venceu os dois turnos — campeão automático!</div>`;
+  } else if (e.grandFinal) {
+    gfHtml = `<div class="card" style="margin-top:16px">
+      <h3>Grande Final · ${state.teams[e.t1Champion].shortName} (1º turno) × ${state.teams[e.t2Champion].shortName} (2º turno)</h3>
+      <div class="bracket" style="grid-template-columns:1fr;max-width:280px"><div class="bracket-col"><div class="bracket-col-body">${renderPaulistaTie(e.grandFinal)}</div></div></div>
+      ${e.champion ? `<div class="bracket-champion" style="margin-top:12px">🏆 Campeão: ${state.teams[e.champion].name}</div>` : ""}
+    </div>`;
+  }
+
+  return header + t1Html + t2Html + gfHtml;
 }
 
 function renderStandingsSerieC() {

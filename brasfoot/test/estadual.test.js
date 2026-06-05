@@ -89,9 +89,10 @@ function playEstadualToEnd(state, estadual, rng) {
 
 test("createEstaduais: cria 1 estadual por UF oficial com seu formato", () => {
   const { state } = stateWithEstaduais();
-  const formatByUf = { SP: "paulista", RJ: "carioca", MG: "mineiro", RS: "gaucho", PR: "paranaense", BA: "baiano", CE: "cearense", PE: "pernambucano", AL: "alagoano", GO: "goiano", SC: "catarinense", PA: "paraense", AC: "acreano" };
-  // Fase inicial: a maioria começa em "groups"; ligas (turno único) em "league".
-  const initialPhase = { baiano: "league", pernambucano: "league", alagoano: "league", acreano: "league" };
+  const formatByUf = { SP: "paulista", RJ: "carioca", MG: "mineiro", RS: "gaucho", PR: "paranaense", BA: "baiano", CE: "cearense", PE: "pernambucano", AL: "alagoano", GO: "goiano", SC: "catarinense", PA: "paraense", AC: "acreano", AM: "amazonense" };
+  // Fase inicial: a maioria começa em "groups"; ligas (turno único) em "league";
+  // o Amazonense começa no 1º turno ("t1_groups").
+  const initialPhase = { baiano: "league", pernambucano: "league", alagoano: "league", acreano: "league", amazonense: "t1_groups" };
   for (const uf of ESTADUAL_STATES) {
     assert.ok(state.estaduais[uf], `estadual de ${uf} existe`);
     assert.equal(state.estaduais[uf].uf, uf);
@@ -169,6 +170,24 @@ test("Goiano: grupos (8 rodadas) → quartas/semis/final → campeão", () => {
   assert.ok(go.knockout && go.knockout.quarters.length === 4, "quartas criadas");
   assert.equal(go.phase, "done");
   assert.ok(go.champion && go.teams.includes(go.champion), "campeão participou");
+});
+
+// Integração do Amazonense: dois turnos + grande final, pelo fluxo real.
+test("Amazonense: 1º turno → 2º turno → grande final → campeão", () => {
+  const { state, rng } = stateWithEstaduais();
+  const am = state.estaduais.AM;
+  assert.equal(am.format, "amazonense");
+  assert.equal(am.phase, "t1_groups");
+
+  playEstadualToEnd(state, am, rng);
+
+  assert.ok(state.competitions.estadual_am_t2, "2º turno foi criado em runtime");
+  assert.ok(am.t1Champion, "tem campeão do 1º turno");
+  assert.ok(am.t2Champion, "tem campeão do 2º turno");
+  assert.equal(am.phase, "done");
+  assert.ok(am.champion && am.teams.includes(am.champion), "campeão geral definido");
+  // se mesmo time venceu os 2 turnos, é ele; senão, venceu a grande final
+  if (am.t1Champion === am.t2Champion) assert.equal(am.champion, am.t1Champion);
 });
 
 // Testes do FORMATO DE GRUPOS genérico (fallback), via createOneEstadual.

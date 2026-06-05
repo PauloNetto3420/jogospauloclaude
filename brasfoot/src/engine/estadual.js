@@ -85,8 +85,17 @@ import {
   applyAcreanoKnockoutResult, getAcreanoKnockoutLegs, getAcreanoQualified,
   ACREANO_PHASE1_ROUNDS, ACREANO_TOTAL_ROUNDS, ACREANO_CHAMPION_PRIZE,
 } from "./acreano.js";
+import {
+  createAmazonenseT1Phase, createAmazonenseT2Phase, getAmazonenseQualified,
+  createTurnoKnockout, advanceTurnoKnockout, applyAmazonenseKnockoutResult,
+  getTurnoKnockoutLegs, makeGrandFinal,
+  AMAZONENSE_T1_PHASE_ROUNDS, AMAZONENSE_T1_SEMI_ROUND, AMAZONENSE_T1_FINAL_ROUND,
+  AMAZONENSE_T2_PHASE_START, AMAZONENSE_T2_PHASE_ROUNDS, AMAZONENSE_T2_SEMI_ROUND,
+  AMAZONENSE_T2_FINAL_ROUND, AMAZONENSE_GRAND_FINAL_ROUND, AMAZONENSE_TOTAL_ROUNDS,
+  AMAZONENSE_CHAMPION_PRIZE,
+} from "./amazonense.js";
 
-export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA", "AC"];
+export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA", "AC", "AM"];
 
 const ESTADUAL_NAMES = {
   SP: "Campeonato Paulista",
@@ -102,6 +111,7 @@ const ESTADUAL_NAMES = {
   SC: "Campeonato Catarinense",
   PA: "Campeonato Paraense",
   AC: "Campeonato Acreano",
+  AM: "Campeonato Amazonense",
 };
 
 // Cria todos os estaduais. Retorna o objeto meta (state.estaduais).
@@ -123,6 +133,7 @@ export function createEstaduais(state, season, rng) {
     if (uf === "SC") { estaduais.SC = createCatarinenseEstadual(state, season, rng); continue; }
     if (uf === "PA") { estaduais.PA = createParaenseEstadual(state, season, rng); continue; }
     if (uf === "AC") { estaduais.AC = createAcreanoEstadual(state, season, rng); continue; }
+    if (uf === "AM") { estaduais.AM = createAmazonenseEstadual(state, season, rng); continue; }
     const teamIds = Object.values(state.teams)
       .filter(t => t.state === uf)
       .map(t => t.id);
@@ -384,6 +395,30 @@ function createAcreanoEstadual(state, season, rng) {
   };
 }
 
+// Campeonato Amazonense (dois turnos + grande final). 1º turno 1..6 (fase 1-4,
+// semis 5, final 6); 2º turno 7..11 (fase 7-9, semis 10, final 11); grande
+// final 12. format: "amazonense".
+function createAmazonenseEstadual(state, season, rng) {
+  const t1 = createAmazonenseT1Phase({ season, rng });
+  state.competitions.estadual_am = t1;
+  return {
+    uf: "AM",
+    name: ESTADUAL_NAMES.AM,
+    format: "amazonense",
+    teams: [...t1.teams],
+    phase: "t1_groups",   // t1_groups | t1_ko | t2_groups | t2_ko | grand_final | done
+    t1ko: null, t2ko: null, grandFinal: null,
+    t1Champion: null, t2Champion: null,
+    knockout: null,       // não usado (estrutura própria)
+    champion: null,
+    prize: AMAZONENSE_CHAMPION_PRIZE,
+    schedule: {
+      groupRounds: AMAZONENSE_T1_PHASE_ROUNDS,   // 1..4 (1º turno)
+      finalRound: AMAZONENSE_TOTAL_ROUNDS,       // 12
+    },
+  };
+}
+
 // Campeonato Paulista (formato suíço). Monta a 1ª fase a partir dos potes
 // oficiais e registra a competição. O mata-mata é criado quando a 1ª fase
 // termina (advanceEstadualPhase). Marcado com format: "paulista" pra que os
@@ -491,6 +526,7 @@ export function getEstadualMatchesForRound(state, estadual, round) {
   if (estadual.format === "catarinense") return getCatarinenseMatchesForRound(state, estadual, round);
   if (estadual.format === "paraense") return getParaenseMatchesForRound(state, estadual, round);
   if (estadual.format === "acreano") return getAcreanoMatchesForRound(state, estadual, round);
+  if (estadual.format === "amazonense") return getAmazonenseMatchesForRound(state, estadual, round);
 
   const out = [];
   // Grupos
@@ -542,6 +578,7 @@ export function advanceEstadualPhase(state, estadual, season, rng) {
   if (estadual.format === "catarinense") return advanceCatarinenseEstadual(state, estadual, season, rng);
   if (estadual.format === "paraense") return advanceParaenseEstadual(state, estadual, season, rng);
   if (estadual.format === "acreano") return advanceAcreanoEstadual(state, estadual, season, rng);
+  if (estadual.format === "amazonense") return advanceAmazonenseEstadual(state, estadual, season, rng);
 
   if (estadual.phase === "groups") {
     const groupsDone = estadual.groupIds.every(gid =>
@@ -681,6 +718,10 @@ export function applyEstadualKnockoutResult(estadual, leg, rng) {
   }
   if (estadual.format === "acreano") {
     applyAcreanoKnockoutResult(estadual.knockout, leg, rng);
+    return;
+  }
+  if (estadual.format === "amazonense") {
+    applyAmazonenseKnockoutResult(estadual, leg, rng); // recebe o estadual (t1ko/t2ko/grande final)
     return;
   }
   // Encontra o tie
@@ -1261,6 +1302,87 @@ function advanceAcreanoEstadual(state, estadual, season, rng) {
   estadual.phase = ko.phase;
   if (ko.phase === "done" && ko.champion && !estadual.champion) {
     estadual.champion = ko.champion;
+  }
+}
+
+// -------------------- Formato Amazonense (bifurcações) --------------------
+
+// Jogos do Amazonense numa rodada: 1º turno (fase 1-4, semis 5, final 6),
+// 2º turno (fase 7-9, semis 10, final 11), grande final (12).
+function getAmazonenseMatchesForRound(state, estadual, round) {
+  const out = [];
+  if (round <= AMAZONENSE_T1_PHASE_ROUNDS) {
+    const c = state.competitions.estadual_am;
+    if (c) for (const m of c.fixtures) if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_am" });
+    return out;
+  }
+  if (round === AMAZONENSE_T1_SEMI_ROUND || round === AMAZONENSE_T1_FINAL_ROUND) {
+    for (const e of getTurnoKnockoutLegs(estadual.t1ko, round)) out.push({ match: e.leg, kind: e.kind === "final" ? "final" : "semi", tie: e.tie });
+    return out;
+  }
+  if (round >= AMAZONENSE_T2_PHASE_START && round < AMAZONENSE_T2_PHASE_START + AMAZONENSE_T2_PHASE_ROUNDS) {
+    const c = state.competitions.estadual_am_t2;
+    if (c) for (const m of c.fixtures) if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_am_t2" });
+    return out;
+  }
+  if (round === AMAZONENSE_T2_SEMI_ROUND || round === AMAZONENSE_T2_FINAL_ROUND) {
+    for (const e of getTurnoKnockoutLegs(estadual.t2ko, round)) out.push({ match: e.leg, kind: e.kind === "final" ? "final" : "semi", tie: e.tie });
+    return out;
+  }
+  if (round === AMAZONENSE_GRAND_FINAL_ROUND && estadual.grandFinal && !estadual.grandFinal.leg.played) {
+    out.push({ match: estadual.grandFinal.leg, kind: "final", tie: estadual.grandFinal });
+  }
+  return out;
+}
+
+// Máquina de estados dos dois turnos + grande final.
+function advanceAmazonenseEstadual(state, estadual, season, rng) {
+  if (estadual.phase === "t1_groups") {
+    const c = state.competitions.estadual_am;
+    if (c && c.fixtures.every(m => m.played)) {
+      estadual.t1ko = createTurnoKnockout(getAmazonenseQualified(c, state.teams), AMAZONENSE_T1_SEMI_ROUND, AMAZONENSE_T1_FINAL_ROUND, "t1");
+      estadual.phase = "t1_ko";
+    }
+    return;
+  }
+  if (estadual.phase === "t1_ko") {
+    advanceTurnoKnockout(estadual.t1ko);
+    if (estadual.t1ko.champion) {
+      estadual.t1Champion = estadual.t1ko.champion;
+      state.competitions.estadual_am_t2 = createAmazonenseT2Phase({ season, t1comp: state.competitions.estadual_am });
+      estadual.phase = "t2_groups";
+    }
+    return;
+  }
+  if (estadual.phase === "t2_groups") {
+    const c = state.competitions.estadual_am_t2;
+    if (c && c.fixtures.every(m => m.played)) {
+      estadual.t2ko = createTurnoKnockout(getAmazonenseQualified(c, state.teams), AMAZONENSE_T2_SEMI_ROUND, AMAZONENSE_T2_FINAL_ROUND, "t2");
+      estadual.phase = "t2_ko";
+    }
+    return;
+  }
+  if (estadual.phase === "t2_ko") {
+    advanceTurnoKnockout(estadual.t2ko);
+    if (estadual.t2ko.champion) {
+      estadual.t2Champion = estadual.t2ko.champion;
+      if (estadual.t1Champion === estadual.t2Champion) {
+        // Mesmo time venceu os dois turnos → campeão automático.
+        estadual.champion = estadual.t1Champion;
+        estadual.phase = "done";
+      } else {
+        estadual.grandFinal = makeGrandFinal(estadual.t1Champion, estadual.t2Champion);
+        estadual.phase = "grand_final";
+      }
+    }
+    return;
+  }
+  if (estadual.phase === "grand_final") {
+    if (estadual.grandFinal?.winnerId && !estadual.champion) {
+      estadual.champion = estadual.grandFinal.winnerId;
+      estadual.phase = "done";
+    }
+    return;
   }
 }
 
