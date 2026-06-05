@@ -55,8 +55,13 @@ import {
   CEARENSE_PHASE1_ROUNDS, CEARENSE_PHASE2_ROUND_START, CEARENSE_PHASE2_ROUNDS,
   CEARENSE_TOTAL_ROUNDS, CEARENSE_CHAMPION_PRIZE,
 } from "./cearense.js";
+import {
+  createPernambucanoPhase1, createPernambucanoKnockout, advancePernambucanoKnockout,
+  applyPernambucanoKnockoutResult, getPernambucanoKnockoutLegs, getPernambucanoQualified,
+  PERNAMBUCANO_PHASE1_ROUNDS, PERNAMBUCANO_TOTAL_ROUNDS, PERNAMBUCANO_CHAMPION_PRIZE,
+} from "./pernambucano.js";
 
-export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE"];
+export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE"];
 
 const ESTADUAL_NAMES = {
   SP: "Campeonato Paulista",
@@ -66,6 +71,7 @@ const ESTADUAL_NAMES = {
   PR: "Campeonato Paranaense",
   BA: "Campeonato Baiano",
   CE: "Campeonato Cearense",
+  PE: "Campeonato Pernambucano",
 };
 
 // Cria todos os estaduais. Retorna o objeto meta (state.estaduais).
@@ -81,6 +87,7 @@ export function createEstaduais(state, season, rng) {
     if (uf === "PR") { estaduais.PR = createParanaenseEstadual(state, season, rng); continue; }
     if (uf === "BA") { estaduais.BA = createBaianoEstadual(state, season, rng); continue; }
     if (uf === "CE") { estaduais.CE = createCearenseEstadual(state, season, rng); continue; }
+    if (uf === "PE") { estaduais.PE = createPernambucanoEstadual(state, season, rng); continue; }
     const teamIds = Object.values(state.teams)
       .filter(t => t.state === uf)
       .map(t => t.id);
@@ -216,6 +223,27 @@ function createCearenseEstadual(state, season, rng) {
   };
 }
 
+// Campeonato Pernambucano (liga turno único + playoff 3-6 + semis/final).
+// 1ª fase 1..7, playoff 8/9, semis 10/11, final 12/13. format: "pernambucano".
+function createPernambucanoEstadual(state, season, rng) {
+  const phase1 = createPernambucanoPhase1({ season });
+  state.competitions.estadual_pe = phase1;
+  return {
+    uf: "PE",
+    name: ESTADUAL_NAMES.PE,
+    format: "pernambucano",
+    teams: [...phase1.teams],
+    phase: "league",            // league | playoffs | semis | final | done
+    knockout: null,
+    champion: null,
+    prize: PERNAMBUCANO_CHAMPION_PRIZE,
+    schedule: {
+      groupRounds: PERNAMBUCANO_PHASE1_ROUNDS,   // 1..7
+      finalRound: PERNAMBUCANO_TOTAL_ROUNDS,     // 13
+    },
+  };
+}
+
 // Campeonato Paulista (formato suíço). Monta a 1ª fase a partir dos potes
 // oficiais e registra a competição. O mata-mata é criado quando a 1ª fase
 // termina (advanceEstadualPhase). Marcado com format: "paulista" pra que os
@@ -317,6 +345,7 @@ export function getEstadualMatchesForRound(state, estadual, round) {
   if (estadual.format === "paranaense") return getParanaenseMatchesForRound(state, estadual, round);
   if (estadual.format === "baiano") return getBaianoMatchesForRound(state, estadual, round);
   if (estadual.format === "cearense") return getCearenseMatchesForRound(state, estadual, round);
+  if (estadual.format === "pernambucano") return getPernambucanoMatchesForRound(state, estadual, round);
 
   const out = [];
   // Grupos
@@ -362,6 +391,7 @@ export function advanceEstadualPhase(state, estadual, season, rng) {
   if (estadual.format === "paranaense") return advanceParanaenseEstadual(state, estadual, season, rng);
   if (estadual.format === "baiano") return advanceBaianoEstadual(state, estadual, season, rng);
   if (estadual.format === "cearense") return advanceCearenseEstadual(state, estadual, season, rng);
+  if (estadual.format === "pernambucano") return advancePernambucanoEstadual(state, estadual, season, rng);
 
   if (estadual.phase === "groups") {
     const groupsDone = estadual.groupIds.every(gid =>
@@ -477,6 +507,10 @@ export function applyEstadualKnockoutResult(estadual, leg, rng) {
   }
   if (estadual.format === "cearense") {
     applyCearenseKnockoutResult(estadual.knockout, leg, rng);
+    return;
+  }
+  if (estadual.format === "pernambucano") {
+    applyPernambucanoKnockoutResult(estadual.knockout, leg, rng);
     return;
   }
   // Encontra o tie
@@ -808,6 +842,47 @@ function advanceCearenseEstadual(state, estadual, season, rng) {
   const ko = estadual.knockout;
   if (!ko) return;
   advanceCearenseKnockout(ko);
+  estadual.phase = ko.phase;
+  if (ko.phase === "done" && ko.champion && !estadual.champion) {
+    estadual.champion = ko.champion;
+  }
+}
+
+// -------------------- Formato Pernambucano (bifurcações) --------------------
+
+// Jogos do Pernambucano numa rodada: 1ª fase (1..7, pontos corridos);
+// mata-mata (8..13: playoff, semis, final, tudo ida/volta) via knockout.
+function getPernambucanoMatchesForRound(state, estadual, round) {
+  const out = [];
+  if (round <= PERNAMBUCANO_PHASE1_ROUNDS) {
+    const comp = state.competitions.estadual_pe;
+    if (comp) for (const m of comp.fixtures) {
+      if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_pe" });
+    }
+    return out;
+  }
+  if (!estadual.knockout) return out;
+  for (const entry of getPernambucanoKnockoutLegs(estadual.knockout, round)) {
+    const kind = entry.kind === "final" ? "final" : "semi";
+    out.push({ match: entry.leg, kind, tie: entry.tie });
+  }
+  return out;
+}
+
+// Avança o Pernambucano: cria o mata-mata (top 6) ao fim da 1ª fase; delega ao KO.
+function advancePernambucanoEstadual(state, estadual, season, rng) {
+  if (estadual.phase === "league") {
+    const comp = state.competitions.estadual_pe;
+    if (comp && comp.fixtures.every(m => m.played)) {
+      const qualified = getPernambucanoQualified(comp, state.teams);
+      estadual.knockout = createPernambucanoKnockout(qualified);
+      estadual.phase = "playoffs";
+    }
+    return;
+  }
+  const ko = estadual.knockout;
+  if (!ko) return;
+  advancePernambucanoKnockout(ko);
   estadual.phase = ko.phase;
   if (ko.phase === "done" && ko.champion && !estadual.champion) {
     estadual.champion = ko.champion;

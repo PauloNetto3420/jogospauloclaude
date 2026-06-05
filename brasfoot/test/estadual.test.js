@@ -89,9 +89,9 @@ function playEstadualToEnd(state, estadual, rng) {
 
 test("createEstaduais: cria 1 estadual por UF oficial com seu formato", () => {
   const { state } = stateWithEstaduais();
-  const formatByUf = { SP: "paulista", RJ: "carioca", MG: "mineiro", RS: "gaucho", PR: "paranaense", BA: "baiano", CE: "cearense" };
-  // Fase inicial: a maioria começa em "groups"; o Baiano é liga (turno único).
-  const initialPhase = { baiano: "league" };
+  const formatByUf = { SP: "paulista", RJ: "carioca", MG: "mineiro", RS: "gaucho", PR: "paranaense", BA: "baiano", CE: "cearense", PE: "pernambucano" };
+  // Fase inicial: a maioria começa em "groups"; ligas (turno único) em "league".
+  const initialPhase = { baiano: "league", pernambucano: "league" };
   for (const uf of ESTADUAL_STATES) {
     assert.ok(state.estaduais[uf], `estadual de ${uf} existe`);
     assert.equal(state.estaduais[uf].uf, uf);
@@ -128,6 +128,22 @@ test("Cearense: 1ª fase → 2ª fase (nova comp) → mata-mata → campeão", (
   assert.equal(ce.phase, "done", "chega ao fim");
   assert.ok(ce.champion, "tem campeão");
   assert.ok(ce.teams.includes(ce.champion), "campeão participou");
+});
+
+// Integração do Pernambucano: liga → playoff (3º-6º) → semis → final, dirigido
+// pelos helpers reais do estadual.js.
+test("Pernambucano: liga → playoff → semis → final → campeão", () => {
+  const { state, rng } = stateWithEstaduais();
+  const pe = state.estaduais.PE;
+  assert.equal(pe.format, "pernambucano");
+  assert.equal(pe.phase, "league");
+
+  playEstadualToEnd(state, pe, rng);
+
+  assert.ok(pe.knockout, "mata-mata criado");
+  assert.equal(pe.knockout.playoffs.length, 2, "tem playoff 3º-6º");
+  assert.equal(pe.phase, "done");
+  assert.ok(pe.champion && pe.teams.includes(pe.champion), "campeão participou");
 });
 
 // Testes do FORMATO DE GRUPOS genérico (fallback), via createOneEstadual.
