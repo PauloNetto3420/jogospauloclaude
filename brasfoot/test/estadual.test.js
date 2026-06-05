@@ -89,10 +89,10 @@ function playEstadualToEnd(state, estadual, rng) {
 
 test("createEstaduais: cria 1 estadual por UF oficial com seu formato", () => {
   const { state } = stateWithEstaduais();
-  const formatByUf = { SP: "paulista", RJ: "carioca", MG: "mineiro", RS: "gaucho", PR: "paranaense", BA: "baiano", CE: "cearense", PE: "pernambucano", AL: "alagoano", GO: "goiano", SC: "catarinense", PA: "paraense", AC: "acreano", AM: "amazonense", AP: "amapaense" };
+  const formatByUf = { SP: "paulista", RJ: "carioca", MG: "mineiro", RS: "gaucho", PR: "paranaense", BA: "baiano", CE: "cearense", PE: "pernambucano", AL: "alagoano", GO: "goiano", SC: "catarinense", PA: "paraense", AC: "acreano", AM: "amazonense", AP: "amapaense", RO: "rondoniense" };
   // Fase inicial: a maioria começa em "groups"; ligas (turno único) em "league";
   // o Amazonense começa no 1º turno ("t1_groups").
-  const initialPhase = { baiano: "league", pernambucano: "league", alagoano: "league", acreano: "league", amapaense: "league", amazonense: "t1_groups" };
+  const initialPhase = { baiano: "league", pernambucano: "league", alagoano: "league", acreano: "league", amapaense: "league", rondoniense: "league", amazonense: "t1_groups" };
   for (const uf of ESTADUAL_STATES) {
     assert.ok(state.estaduais[uf], `estadual de ${uf} existe`);
     assert.equal(state.estaduais[uf].uf, uf);

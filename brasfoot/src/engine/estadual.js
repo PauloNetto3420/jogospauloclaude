@@ -99,8 +99,13 @@ import {
   applyAmapaenseKnockoutResult, getAmapaenseKnockoutLegs, getAmapaenseQualified,
   AMAPAENSE_PHASE1_ROUNDS, AMAPAENSE_TOTAL_ROUNDS, AMAPAENSE_CHAMPION_PRIZE,
 } from "./amapaense.js";
+import {
+  createRondoniensePhase1, createRondonienseKnockout, advanceRondonienseKnockout,
+  applyRondonienseKnockoutResult, getRondonienseKnockoutLegs, getRondonienseQualified,
+  RONDONIENSE_PHASE1_ROUNDS, RONDONIENSE_TOTAL_ROUNDS, RONDONIENSE_CHAMPION_PRIZE,
+} from "./rondoniense.js";
 
-export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA", "AC", "AM", "AP"];
+export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA", "AC", "AM", "AP", "RO"];
 
 const ESTADUAL_NAMES = {
   SP: "Campeonato Paulista",
@@ -118,6 +123,7 @@ const ESTADUAL_NAMES = {
   AC: "Campeonato Acreano",
   AM: "Campeonato Amazonense",
   AP: "Campeonato Amapaense",
+  RO: "Campeonato Rondoniense",
 };
 
 // Cria todos os estaduais. Retorna o objeto meta (state.estaduais).
@@ -141,6 +147,7 @@ export function createEstaduais(state, season, rng) {
     if (uf === "AC") { estaduais.AC = createAcreanoEstadual(state, season, rng); continue; }
     if (uf === "AM") { estaduais.AM = createAmazonenseEstadual(state, season, rng); continue; }
     if (uf === "AP") { estaduais.AP = createAmapaenseEstadual(state, season, rng); continue; }
+    if (uf === "RO") { estaduais.RO = createRondonienseEstadual(state, season, rng); continue; }
     const teamIds = Object.values(state.teams)
       .filter(t => t.state === uf)
       .map(t => t.id);
@@ -447,6 +454,27 @@ function createAmapaenseEstadual(state, season, rng) {
   };
 }
 
+// Campeonato Rondoniense (pontos corridos turno e returno + semis/final
+// ida/volta). 1ª fase 1..14, semis 15/16, final 17/18. format: "rondoniense".
+function createRondonienseEstadual(state, season, rng) {
+  const phase1 = createRondoniensePhase1({ season });
+  state.competitions.estadual_ro = phase1;
+  return {
+    uf: "RO",
+    name: ESTADUAL_NAMES.RO,
+    format: "rondoniense",
+    teams: [...phase1.teams],
+    phase: "league",            // league | semis | final | done
+    knockout: null,
+    champion: null,
+    prize: RONDONIENSE_CHAMPION_PRIZE,
+    schedule: {
+      groupRounds: RONDONIENSE_PHASE1_ROUNDS,   // 1..14
+      finalRound: RONDONIENSE_TOTAL_ROUNDS,     // 18
+    },
+  };
+}
+
 // Campeonato Paulista (formato suíço). Monta a 1ª fase a partir dos potes
 // oficiais e registra a competição. O mata-mata é criado quando a 1ª fase
 // termina (advanceEstadualPhase). Marcado com format: "paulista" pra que os
@@ -556,6 +584,7 @@ export function getEstadualMatchesForRound(state, estadual, round) {
   if (estadual.format === "acreano") return getAcreanoMatchesForRound(state, estadual, round);
   if (estadual.format === "amazonense") return getAmazonenseMatchesForRound(state, estadual, round);
   if (estadual.format === "amapaense") return getAmapaenseMatchesForRound(state, estadual, round);
+  if (estadual.format === "rondoniense") return getRondonienseMatchesForRound(state, estadual, round);
 
   const out = [];
   // Grupos
@@ -609,6 +638,7 @@ export function advanceEstadualPhase(state, estadual, season, rng) {
   if (estadual.format === "acreano") return advanceAcreanoEstadual(state, estadual, season, rng);
   if (estadual.format === "amazonense") return advanceAmazonenseEstadual(state, estadual, season, rng);
   if (estadual.format === "amapaense") return advanceAmapaenseEstadual(state, estadual, season, rng);
+  if (estadual.format === "rondoniense") return advanceRondonienseEstadual(state, estadual, season, rng);
 
   if (estadual.phase === "groups") {
     const groupsDone = estadual.groupIds.every(gid =>
@@ -756,6 +786,10 @@ export function applyEstadualKnockoutResult(estadual, leg, rng) {
   }
   if (estadual.format === "amapaense") {
     applyAmapaenseKnockoutResult(estadual.knockout, leg, rng);
+    return;
+  }
+  if (estadual.format === "rondoniense") {
+    applyRondonienseKnockoutResult(estadual.knockout, leg, rng);
     return;
   }
   // Encontra o tie
@@ -1455,6 +1489,47 @@ function advanceAmapaenseEstadual(state, estadual, season, rng) {
   const ko = estadual.knockout;
   if (!ko) return;
   advanceAmapaenseKnockout(ko);
+  estadual.phase = ko.phase;
+  if (ko.phase === "done" && ko.champion && !estadual.champion) {
+    estadual.champion = ko.champion;
+  }
+}
+
+// -------------------- Formato Rondoniense (bifurcações) --------------------
+
+// Jogos do Rondoniense numa rodada: 1ª fase (1..14, pontos corridos ida/volta);
+// mata-mata (15/16 semis, 17/18 final, ida/volta) via knockout.
+function getRondonienseMatchesForRound(state, estadual, round) {
+  const out = [];
+  if (round <= RONDONIENSE_PHASE1_ROUNDS) {
+    const comp = state.competitions.estadual_ro;
+    if (comp) for (const m of comp.fixtures) {
+      if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_ro" });
+    }
+    return out;
+  }
+  if (!estadual.knockout) return out;
+  for (const entry of getRondonienseKnockoutLegs(estadual.knockout, round)) {
+    const kind = entry.kind === "final" ? "final" : "semi";
+    out.push({ match: entry.leg, kind, tie: entry.tie });
+  }
+  return out;
+}
+
+// Avança o Rondoniense: cria o mata-mata (top 4) ao fim da 1ª fase.
+function advanceRondonienseEstadual(state, estadual, season, rng) {
+  if (estadual.phase === "league") {
+    const comp = state.competitions.estadual_ro;
+    if (comp && comp.fixtures.every(m => m.played)) {
+      const qualified = getRondonienseQualified(comp, state.teams);
+      estadual.knockout = createRondonienseKnockout(qualified);
+      estadual.phase = "semis";
+    }
+    return;
+  }
+  const ko = estadual.knockout;
+  if (!ko) return;
+  advanceRondonienseKnockout(ko);
   estadual.phase = ko.phase;
   if (ko.phase === "done" && ko.champion && !estadual.champion) {
     estadual.champion = ko.champion;
