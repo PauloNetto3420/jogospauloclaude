@@ -75,8 +75,13 @@ import {
   applyCatarinenseKnockoutResult, getCatarinenseKnockoutLegs, getCatarinenseQualified,
   CATARINENSE_GROUP_ROUNDS, CATARINENSE_TOTAL_ROUNDS, CATARINENSE_CHAMPION_PRIZE,
 } from "./catarinense.js";
+import {
+  createParaensePhase1, createParaenseKnockout, advanceParaenseKnockout,
+  applyParaenseKnockoutResult, getParaenseKnockoutLegs, getParaenseQualified,
+  PARAENSE_GROUP_ROUNDS, PARAENSE_TOTAL_ROUNDS, PARAENSE_CHAMPION_PRIZE,
+} from "./paraense.js";
 
-export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC"];
+export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA"];
 
 const ESTADUAL_NAMES = {
   SP: "Campeonato Paulista",
@@ -90,6 +95,7 @@ const ESTADUAL_NAMES = {
   AL: "Campeonato Alagoano",
   GO: "Campeonato Goiano",
   SC: "Campeonato Catarinense",
+  PA: "Campeonato Paraense",
 };
 
 // Cria todos os estaduais. Retorna o objeto meta (state.estaduais).
@@ -109,6 +115,7 @@ export function createEstaduais(state, season, rng) {
     if (uf === "AL") { estaduais.AL = createAlagoanoEstadual(state, season, rng); continue; }
     if (uf === "GO") { estaduais.GO = createGoianoEstadual(state, season, rng); continue; }
     if (uf === "SC") { estaduais.SC = createCatarinenseEstadual(state, season, rng); continue; }
+    if (uf === "PA") { estaduais.PA = createParaenseEstadual(state, season, rng); continue; }
     const teamIds = Object.values(state.teams)
       .filter(t => t.state === uf)
       .map(t => t.id);
@@ -328,6 +335,27 @@ function createCatarinenseEstadual(state, season, rng) {
   };
 }
 
+// Campeonato Paraense (grupos cruzados + tabela geral top 8 + mata-mata
+// híbrido). 1ª fase 1..6, quartas 7, semis 8, final 9/10. format: "paraense".
+function createParaenseEstadual(state, season, rng) {
+  const phase1 = createParaensePhase1({ season, rng });
+  state.competitions.estadual_pa = phase1;
+  return {
+    uf: "PA",
+    name: ESTADUAL_NAMES.PA,
+    format: "paraense",
+    teams: [...phase1.teams],
+    phase: "groups",            // groups | quarters | semis | final | done
+    knockout: null,
+    champion: null,
+    prize: PARAENSE_CHAMPION_PRIZE,
+    schedule: {
+      groupRounds: PARAENSE_GROUP_ROUNDS,   // 1..6
+      finalRound: PARAENSE_TOTAL_ROUNDS,    // 10
+    },
+  };
+}
+
 // Campeonato Paulista (formato suíço). Monta a 1ª fase a partir dos potes
 // oficiais e registra a competição. O mata-mata é criado quando a 1ª fase
 // termina (advanceEstadualPhase). Marcado com format: "paulista" pra que os
@@ -433,6 +461,7 @@ export function getEstadualMatchesForRound(state, estadual, round) {
   if (estadual.format === "alagoano") return getAlagoanoMatchesForRound(state, estadual, round);
   if (estadual.format === "goiano") return getGoianoMatchesForRound(state, estadual, round);
   if (estadual.format === "catarinense") return getCatarinenseMatchesForRound(state, estadual, round);
+  if (estadual.format === "paraense") return getParaenseMatchesForRound(state, estadual, round);
 
   const out = [];
   // Grupos
@@ -482,6 +511,7 @@ export function advanceEstadualPhase(state, estadual, season, rng) {
   if (estadual.format === "alagoano") return advanceAlagoanoEstadual(state, estadual, season, rng);
   if (estadual.format === "goiano") return advanceGoianoEstadual(state, estadual, season, rng);
   if (estadual.format === "catarinense") return advanceCatarinenseEstadual(state, estadual, season, rng);
+  if (estadual.format === "paraense") return advanceParaenseEstadual(state, estadual, season, rng);
 
   if (estadual.phase === "groups") {
     const groupsDone = estadual.groupIds.every(gid =>
@@ -613,6 +643,10 @@ export function applyEstadualKnockoutResult(estadual, leg, rng) {
   }
   if (estadual.format === "catarinense") {
     applyCatarinenseKnockoutResult(estadual.knockout, leg, rng);
+    return;
+  }
+  if (estadual.format === "paraense") {
+    applyParaenseKnockoutResult(estadual.knockout, leg, rng);
     return;
   }
   // Encontra o tie
@@ -1108,6 +1142,47 @@ function advanceCatarinenseEstadual(state, estadual, season, rng) {
   const ko = estadual.knockout;
   if (!ko) return;
   advanceCatarinenseKnockout(ko);
+  estadual.phase = ko.phase;
+  if (ko.phase === "done" && ko.champion && !estadual.champion) {
+    estadual.champion = ko.champion;
+  }
+}
+
+// -------------------- Formato Paraense (bifurcações) --------------------
+
+// Jogos do Paraense numa rodada: 1ª fase (1..6, grupos cruzados); mata-mata
+// (7 quartas, 8 semis em jogo único; 9/10 final ida/volta) via knockout.
+function getParaenseMatchesForRound(state, estadual, round) {
+  const out = [];
+  if (round <= PARAENSE_GROUP_ROUNDS) {
+    const comp = state.competitions.estadual_pa;
+    if (comp) for (const m of comp.fixtures) {
+      if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_pa" });
+    }
+    return out;
+  }
+  if (!estadual.knockout) return out;
+  for (const entry of getParaenseKnockoutLegs(estadual.knockout, round)) {
+    const kind = entry.kind === "final" ? "final" : "semi";
+    out.push({ match: entry.leg, kind, tie: entry.tie });
+  }
+  return out;
+}
+
+// Avança o Paraense: cria o mata-mata (top 8 geral) ao fim da 1ª fase.
+function advanceParaenseEstadual(state, estadual, season, rng) {
+  if (estadual.phase === "groups") {
+    const comp = state.competitions.estadual_pa;
+    if (comp && comp.fixtures.every(m => m.played)) {
+      const qualified = getParaenseQualified(comp, state.teams);
+      estadual.knockout = createParaenseKnockout(qualified);
+      estadual.phase = "quarters";
+    }
+    return;
+  }
+  const ko = estadual.knockout;
+  if (!ko) return;
+  advanceParaenseKnockout(ko);
   estadual.phase = ko.phase;
   if (ko.phase === "done" && ko.champion && !estadual.champion) {
     estadual.champion = ko.champion;

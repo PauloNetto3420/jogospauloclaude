@@ -89,7 +89,7 @@ function playEstadualToEnd(state, estadual, rng) {
 
 test("createEstaduais: cria 1 estadual por UF oficial com seu formato", () => {
   const { state } = stateWithEstaduais();
-  const formatByUf = { SP: "paulista", RJ: "carioca", MG: "mineiro", RS: "gaucho", PR: "paranaense", BA: "baiano", CE: "cearense", PE: "pernambucano", AL: "alagoano", GO: "goiano", SC: "catarinense" };
+  const formatByUf = { SP: "paulista", RJ: "carioca", MG: "mineiro", RS: "gaucho", PR: "paranaense", BA: "baiano", CE: "cearense", PE: "pernambucano", AL: "alagoano", GO: "goiano", SC: "catarinense", PA: "paraense" };
   // Fase inicial: a maioria começa em "groups"; ligas (turno único) em "league".
   const initialPhase = { baiano: "league", pernambucano: "league", alagoano: "league" };
   for (const uf of ESTADUAL_STATES) {
