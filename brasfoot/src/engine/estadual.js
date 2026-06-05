@@ -94,8 +94,13 @@ import {
   AMAZONENSE_T2_FINAL_ROUND, AMAZONENSE_GRAND_FINAL_ROUND, AMAZONENSE_TOTAL_ROUNDS,
   AMAZONENSE_CHAMPION_PRIZE,
 } from "./amazonense.js";
+import {
+  createAmapaensePhase1, createAmapaenseKnockout, advanceAmapaenseKnockout,
+  applyAmapaenseKnockoutResult, getAmapaenseKnockoutLegs, getAmapaenseQualified,
+  AMAPAENSE_PHASE1_ROUNDS, AMAPAENSE_TOTAL_ROUNDS, AMAPAENSE_CHAMPION_PRIZE,
+} from "./amapaense.js";
 
-export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA", "AC", "AM"];
+export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA", "AC", "AM", "AP"];
 
 const ESTADUAL_NAMES = {
   SP: "Campeonato Paulista",
@@ -112,6 +117,7 @@ const ESTADUAL_NAMES = {
   PA: "Campeonato Paraense",
   AC: "Campeonato Acreano",
   AM: "Campeonato Amazonense",
+  AP: "Campeonato Amapaense",
 };
 
 // Cria todos os estaduais. Retorna o objeto meta (state.estaduais).
@@ -134,6 +140,7 @@ export function createEstaduais(state, season, rng) {
     if (uf === "PA") { estaduais.PA = createParaenseEstadual(state, season, rng); continue; }
     if (uf === "AC") { estaduais.AC = createAcreanoEstadual(state, season, rng); continue; }
     if (uf === "AM") { estaduais.AM = createAmazonenseEstadual(state, season, rng); continue; }
+    if (uf === "AP") { estaduais.AP = createAmapaenseEstadual(state, season, rng); continue; }
     const teamIds = Object.values(state.teams)
       .filter(t => t.state === uf)
       .map(t => t.id);
@@ -419,6 +426,27 @@ function createAmazonenseEstadual(state, season, rng) {
   };
 }
 
+// Campeonato Amapaense (liga turno único + semis/final ida/volta — como o
+// Alagoano). 1ª fase 1..7, semis 8/9, final 10/11. format: "amapaense".
+function createAmapaenseEstadual(state, season, rng) {
+  const phase1 = createAmapaensePhase1({ season });
+  state.competitions.estadual_ap = phase1;
+  return {
+    uf: "AP",
+    name: ESTADUAL_NAMES.AP,
+    format: "amapaense",
+    teams: [...phase1.teams],
+    phase: "league",            // league | semis | final | done
+    knockout: null,
+    champion: null,
+    prize: AMAPAENSE_CHAMPION_PRIZE,
+    schedule: {
+      groupRounds: AMAPAENSE_PHASE1_ROUNDS,   // 1..7
+      finalRound: AMAPAENSE_TOTAL_ROUNDS,     // 11
+    },
+  };
+}
+
 // Campeonato Paulista (formato suíço). Monta a 1ª fase a partir dos potes
 // oficiais e registra a competição. O mata-mata é criado quando a 1ª fase
 // termina (advanceEstadualPhase). Marcado com format: "paulista" pra que os
@@ -527,6 +555,7 @@ export function getEstadualMatchesForRound(state, estadual, round) {
   if (estadual.format === "paraense") return getParaenseMatchesForRound(state, estadual, round);
   if (estadual.format === "acreano") return getAcreanoMatchesForRound(state, estadual, round);
   if (estadual.format === "amazonense") return getAmazonenseMatchesForRound(state, estadual, round);
+  if (estadual.format === "amapaense") return getAmapaenseMatchesForRound(state, estadual, round);
 
   const out = [];
   // Grupos
@@ -579,6 +608,7 @@ export function advanceEstadualPhase(state, estadual, season, rng) {
   if (estadual.format === "paraense") return advanceParaenseEstadual(state, estadual, season, rng);
   if (estadual.format === "acreano") return advanceAcreanoEstadual(state, estadual, season, rng);
   if (estadual.format === "amazonense") return advanceAmazonenseEstadual(state, estadual, season, rng);
+  if (estadual.format === "amapaense") return advanceAmapaenseEstadual(state, estadual, season, rng);
 
   if (estadual.phase === "groups") {
     const groupsDone = estadual.groupIds.every(gid =>
@@ -722,6 +752,10 @@ export function applyEstadualKnockoutResult(estadual, leg, rng) {
   }
   if (estadual.format === "amazonense") {
     applyAmazonenseKnockoutResult(estadual, leg, rng); // recebe o estadual (t1ko/t2ko/grande final)
+    return;
+  }
+  if (estadual.format === "amapaense") {
+    applyAmapaenseKnockoutResult(estadual.knockout, leg, rng);
     return;
   }
   // Encontra o tie
@@ -1383,6 +1417,47 @@ function advanceAmazonenseEstadual(state, estadual, season, rng) {
       estadual.phase = "done";
     }
     return;
+  }
+}
+
+// -------------------- Formato Amapaense (bifurcações) --------------------
+
+// Jogos do Amapaense numa rodada: 1ª fase (1..7, pontos corridos); mata-mata
+// (8/9 semis, 10/11 final, ida/volta) via knockout.
+function getAmapaenseMatchesForRound(state, estadual, round) {
+  const out = [];
+  if (round <= AMAPAENSE_PHASE1_ROUNDS) {
+    const comp = state.competitions.estadual_ap;
+    if (comp) for (const m of comp.fixtures) {
+      if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_ap" });
+    }
+    return out;
+  }
+  if (!estadual.knockout) return out;
+  for (const entry of getAmapaenseKnockoutLegs(estadual.knockout, round)) {
+    const kind = entry.kind === "final" ? "final" : "semi";
+    out.push({ match: entry.leg, kind, tie: entry.tie });
+  }
+  return out;
+}
+
+// Avança o Amapaense: cria o mata-mata (top 4) ao fim da 1ª fase.
+function advanceAmapaenseEstadual(state, estadual, season, rng) {
+  if (estadual.phase === "league") {
+    const comp = state.competitions.estadual_ap;
+    if (comp && comp.fixtures.every(m => m.played)) {
+      const qualified = getAmapaenseQualified(comp, state.teams);
+      estadual.knockout = createAmapaenseKnockout(qualified);
+      estadual.phase = "semis";
+    }
+    return;
+  }
+  const ko = estadual.knockout;
+  if (!ko) return;
+  advanceAmapaenseKnockout(ko);
+  estadual.phase = ko.phase;
+  if (ko.phase === "done" && ko.champion && !estadual.champion) {
+    estadual.champion = ko.champion;
   }
 }
 
