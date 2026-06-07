@@ -134,8 +134,13 @@ import {
   applyPotiguarKnockoutResult, getPotiguarKnockoutLegs, getPotiguarQualified,
   POTIGUAR_PHASE1_ROUNDS, POTIGUAR_TOTAL_ROUNDS, POTIGUAR_CHAMPION_PRIZE,
 } from "./potiguar.js";
+import {
+  createSergipanoPhase1, createSergipanoKnockout, advanceSergipanoKnockout,
+  applySergipanoKnockoutResult, getSergipanoKnockoutLegs, getSergipanoQualified,
+  SERGIPANO_PHASE1_ROUNDS, SERGIPANO_TOTAL_ROUNDS, SERGIPANO_CHAMPION_PRIZE,
+} from "./sergipano.js";
 
-export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA", "AC", "AM", "AP", "RO", "RR", "TO", "MA", "PB", "PI", "RN"];
+export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA", "AC", "AM", "AP", "RO", "RR", "TO", "MA", "PB", "PI", "RN", "SE"];
 
 const ESTADUAL_NAMES = {
   SP: "Campeonato Paulista",
@@ -160,6 +165,7 @@ const ESTADUAL_NAMES = {
   PB: "Campeonato Paraibano",
   PI: "Campeonato Piauiense",
   RN: "Campeonato Potiguar",
+  SE: "Campeonato Sergipano",
 };
 
 // Cria todos os estaduais. Retorna o objeto meta (state.estaduais).
@@ -190,6 +196,7 @@ export function createEstaduais(state, season, rng) {
     if (uf === "PB") { estaduais.PB = createParaibanoEstadual(state, season, rng); continue; }
     if (uf === "PI") { estaduais.PI = createPiauienseEstadual(state, season, rng); continue; }
     if (uf === "RN") { estaduais.RN = createPotiguarEstadual(state, season, rng); continue; }
+    if (uf === "SE") { estaduais.SE = createSergipanoEstadual(state, season, rng); continue; }
     const teamIds = Object.values(state.teams)
       .filter(t => t.state === uf)
       .map(t => t.id);
@@ -643,6 +650,28 @@ function createPotiguarEstadual(state, season, rng) {
   };
 }
 
+// Campeonato Sergipano (liga turno único 10 times + repescagem 2º-7º +
+// semis/final ida/volta — como o Potiguar, mas com só 1 vaga direta).
+// 1ª fase 1..9, repescagem 10/11, semis 12/13, final 14/15. format: "sergipano".
+function createSergipanoEstadual(state, season, rng) {
+  const phase1 = createSergipanoPhase1({ season });
+  state.competitions.estadual_se = phase1;
+  return {
+    uf: "SE",
+    name: ESTADUAL_NAMES.SE,
+    format: "sergipano",
+    teams: [...phase1.teams],
+    phase: "league",            // league | playoffs | semis | final | done
+    knockout: null,
+    champion: null,
+    prize: SERGIPANO_CHAMPION_PRIZE,
+    schedule: {
+      groupRounds: SERGIPANO_PHASE1_ROUNDS,   // 1..9
+      finalRound: SERGIPANO_TOTAL_ROUNDS,     // 15
+    },
+  };
+}
+
 // Campeonato Paulista (formato suíço). Monta a 1ª fase a partir dos potes
 // oficiais e registra a competição. O mata-mata é criado quando a 1ª fase
 // termina (advanceEstadualPhase). Marcado com format: "paulista" pra que os
@@ -759,6 +788,7 @@ export function getEstadualMatchesForRound(state, estadual, round) {
   if (estadual.format === "paraibano") return getParaibanoMatchesForRound(state, estadual, round);
   if (estadual.format === "piauiense") return getPiauienseMatchesForRound(state, estadual, round);
   if (estadual.format === "potiguar") return getPotiguarMatchesForRound(state, estadual, round);
+  if (estadual.format === "sergipano") return getSergipanoMatchesForRound(state, estadual, round);
 
   const out = [];
   // Grupos
@@ -819,6 +849,7 @@ export function advanceEstadualPhase(state, estadual, season, rng) {
   if (estadual.format === "paraibano") return advanceParaibanoEstadual(state, estadual, season, rng);
   if (estadual.format === "piauiense") return advancePiauienseEstadual(state, estadual, season, rng);
   if (estadual.format === "potiguar") return advancePotiguarEstadual(state, estadual, season, rng);
+  if (estadual.format === "sergipano") return advanceSergipanoEstadual(state, estadual, season, rng);
 
   if (estadual.phase === "groups") {
     const groupsDone = estadual.groupIds.every(gid =>
@@ -994,6 +1025,10 @@ export function applyEstadualKnockoutResult(estadual, leg, rng) {
   }
   if (estadual.format === "potiguar") {
     applyPotiguarKnockoutResult(estadual.knockout, leg, rng);
+    return;
+  }
+  if (estadual.format === "sergipano") {
+    applySergipanoKnockoutResult(estadual.knockout, leg, rng);
     return;
   }
   // Encontra o tie
@@ -1980,6 +2015,47 @@ function advancePotiguarEstadual(state, estadual, season, rng) {
   const ko = estadual.knockout;
   if (!ko) return;
   advancePotiguarKnockout(ko);
+  estadual.phase = ko.phase;
+  if (ko.phase === "done" && ko.champion && !estadual.champion) {
+    estadual.champion = ko.champion;
+  }
+}
+
+// -------------------- Formato Sergipano (bifurcações) --------------------
+
+// Jogos do Sergipano numa rodada: 1ª fase (1..9, pontos corridos); mata-mata
+// (10/11 repescagem, 12/13 semis, 14/15 final, ida/volta) via knockout.
+function getSergipanoMatchesForRound(state, estadual, round) {
+  const out = [];
+  if (round <= SERGIPANO_PHASE1_ROUNDS) {
+    const comp = state.competitions.estadual_se;
+    if (comp) for (const m of comp.fixtures) {
+      if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_se" });
+    }
+    return out;
+  }
+  if (!estadual.knockout) return out;
+  for (const entry of getSergipanoKnockoutLegs(estadual.knockout, round)) {
+    const kind = entry.kind === "final" ? "final" : "semi";
+    out.push({ match: entry.leg, kind, tie: entry.tie });
+  }
+  return out;
+}
+
+// Avança o Sergipano: cria o mata-mata (top 7) ao fim da 1ª fase.
+function advanceSergipanoEstadual(state, estadual, season, rng) {
+  if (estadual.phase === "league") {
+    const comp = state.competitions.estadual_se;
+    if (comp && comp.fixtures.every(m => m.played)) {
+      const qualified = getSergipanoQualified(comp, state.teams);
+      estadual.knockout = createSergipanoKnockout(qualified);
+      estadual.phase = "playoffs";
+    }
+    return;
+  }
+  const ko = estadual.knockout;
+  if (!ko) return;
+  advanceSergipanoKnockout(ko);
   estadual.phase = ko.phase;
   if (ko.phase === "done" && ko.champion && !estadual.champion) {
     estadual.champion = ko.champion;

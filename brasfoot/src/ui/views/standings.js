@@ -28,6 +28,7 @@ import { getMaranhenseStandings } from "../../engine/maranhense.js";
 import { getParaibanoStandings } from "../../engine/paraibano.js";
 import { getPiauienseStandings } from "../../engine/piauiense.js";
 import { getPotiguarStandings } from "../../engine/potiguar.js";
+import { getSergipanoStandings } from "../../engine/sergipano.js";
 
 export function renderStandings() {
   // Durante a pré-temporada, a aba mostra os estaduais
@@ -150,6 +151,7 @@ function renderOneEstadual(e, isMine) {
   if (e.format === "paraibano") return renderParaibano(e, isMine);
   if (e.format === "piauiense") return renderPiauiense(e, isMine);
   if (e.format === "potiguar") return renderPotiguar(e, isMine);
+  if (e.format === "sergipano") return renderSergipano(e, isMine);
 
   const groupComps = getEstadualGroupComps(state, e);
   const phaseLabel = {
@@ -1337,6 +1339,60 @@ function renderPotiguar(e, isMine) {
       <div class="bracket" style="grid-template-columns:repeat(3,1fr);max-width:720px">
         <div class="bracket-col">
           <div class="bracket-col-title">Repescagem (3º-6º)</div>
+          <div class="bracket-col-body">${ko.playoffs.map(t => renderPaulistaTie(t)).join("")}</div>
+        </div>
+        <div class="bracket-col">
+          <div class="bracket-col-title">Semifinais</div>
+          <div class="bracket-col-body">
+            ${ko.semis.length ? ko.semis.map(t => renderPaulistaTie(t)).join("")
+              : `<div class="bracket-tie pending">aguardando repescagem</div>`}
+          </div>
+        </div>
+        <div class="bracket-col">
+          <div class="bracket-col-title">Final</div>
+          <div class="bracket-col-body">
+            ${ko.final ? renderPaulistaTie(ko.final) : `<div class="bracket-tie pending">aguardando semis</div>`}
+          </div>
+        </div>
+      </div>
+      ${e.champion ? `<div class="bracket-champion" style="margin-top:12px">🏆 Campeão: ${state.teams[e.champion].name}</div>` : ""}
+    </div>` : "";
+
+  return header + tableHtml + koHtml;
+}
+
+function renderSergipano(e, isMine) {
+  const comp = state.competitions.estadual_se;
+  const phaseLabel = {
+    league: "1ª Fase (pontos corridos)", playoffs: "Repescagem (2º-7º)",
+    semis: "Semifinais", final: "Final", done: "Encerrado",
+  }[e.phase] || "—";
+
+  const header = `
+    <div style="margin-bottom:8px;padding:8px 4px;border-left:3px solid ${isMine ? "var(--accent)" : "var(--border)"};padding-left:12px">
+      <span style="font-weight:700;font-size:15px">${e.name}</span>
+      <span style="color:var(--muted);font-size:12px;margin-left:8px">${phaseLabel}</span>
+      ${isMine ? `<span class="badge" style="background:var(--accent);color:var(--accent-fg);margin-left:8px">SEU TIME</span>` : ""}
+    </div>`;
+
+  const tableHtml = comp ? `
+    <div class="card">
+      <h3>Classificação · turno único</h3>
+      <p style="font-size:11px;color:var(--muted);margin-bottom:8px">
+        <b style="color:var(--accent)">1º</b> vai direto à semi · <b style="color:var(--accent-2)">2º-7º</b> disputam a repescagem (ida/volta).
+      </p>
+      ${renderStandingsTable({ ...comp, standings: getSergipanoStandings(comp, state.teams) }, { highlightSlots: [1, 7] })}
+    </div>` : "";
+
+  const ko = e.knockout;
+  const directNames = ko ? ko.direct.map(id => `${teamLogo(id, 16)} ${state.teams[id]?.shortName ?? "?"}`).join(" · ") : "";
+  const koHtml = ko ? `
+    <div class="card" style="margin-top:16px">
+      <h3>${e.name} · Mata-mata (ida/volta)</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Classificado direto à semifinal: <b style="color:var(--accent)">${directNames}</b></div>
+      <div class="bracket" style="grid-template-columns:repeat(3,1fr);max-width:720px">
+        <div class="bracket-col">
+          <div class="bracket-col-title">Repescagem (2º-7º)</div>
           <div class="bracket-col-body">${ko.playoffs.map(t => renderPaulistaTie(t)).join("")}</div>
         </div>
         <div class="bracket-col">
