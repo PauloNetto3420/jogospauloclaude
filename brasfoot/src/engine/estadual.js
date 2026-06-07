@@ -149,8 +149,13 @@ import {
   applySulmatogrossenseKnockoutResult, getSulmatogrossenseKnockoutLegs, getSulmatogrossenseQualified,
   SULMS_PHASE1_ROUNDS, SULMS_TOTAL_ROUNDS, SULMS_CHAMPION_PRIZE,
 } from "./sulmatogrossense.js";
+import {
+  createCandangoPhase1, createCandangoKnockout, advanceCandangoKnockout,
+  applyCandangoKnockoutResult, getCandangoKnockoutLegs, getCandangoQualified,
+  CANDANGO_PHASE1_ROUNDS, CANDANGO_TOTAL_ROUNDS, CANDANGO_CHAMPION_PRIZE,
+} from "./candango.js";
 
-export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA", "AC", "AM", "AP", "RO", "RR", "TO", "MA", "PB", "PI", "RN", "SE", "MT", "MS"];
+export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA", "AC", "AM", "AP", "RO", "RR", "TO", "MA", "PB", "PI", "RN", "SE", "MT", "MS", "DF"];
 
 const ESTADUAL_NAMES = {
   SP: "Campeonato Paulista",
@@ -178,6 +183,7 @@ const ESTADUAL_NAMES = {
   SE: "Campeonato Sergipano",
   MT: "Campeonato Mato-grossense",
   MS: "Campeonato Sul-mato-grossense",
+  DF: "Campeonato Candango",
 };
 
 // Cria todos os estaduais. Retorna o objeto meta (state.estaduais).
@@ -211,6 +217,7 @@ export function createEstaduais(state, season, rng) {
     if (uf === "SE") { estaduais.SE = createSergipanoEstadual(state, season, rng); continue; }
     if (uf === "MT") { estaduais.MT = createMatogrossenseEstadual(state, season, rng); continue; }
     if (uf === "MS") { estaduais.MS = createSulmatogrossenseEstadual(state, season, rng); continue; }
+    if (uf === "DF") { estaduais.DF = createCandangoEstadual(state, season, rng); continue; }
     const teamIds = Object.values(state.teams)
       .filter(t => t.state === uf)
       .map(t => t.id);
@@ -730,6 +737,27 @@ function createSulmatogrossenseEstadual(state, season, rng) {
   };
 }
 
+// Campeonato Candango (DF) (liga turno único 10 times + semis/final ida/volta —
+// como o Paraibano). 1ª fase 1..9, semis 10/11, final 12/13. format: "candango".
+function createCandangoEstadual(state, season, rng) {
+  const phase1 = createCandangoPhase1({ season });
+  state.competitions.estadual_df = phase1;
+  return {
+    uf: "DF",
+    name: ESTADUAL_NAMES.DF,
+    format: "candango",
+    teams: [...phase1.teams],
+    phase: "league",            // league | semis | final | done
+    knockout: null,
+    champion: null,
+    prize: CANDANGO_CHAMPION_PRIZE,
+    schedule: {
+      groupRounds: CANDANGO_PHASE1_ROUNDS,   // 1..9
+      finalRound: CANDANGO_TOTAL_ROUNDS,     // 13
+    },
+  };
+}
+
 // Campeonato Paulista (formato suíço). Monta a 1ª fase a partir dos potes
 // oficiais e registra a competição. O mata-mata é criado quando a 1ª fase
 // termina (advanceEstadualPhase). Marcado com format: "paulista" pra que os
@@ -849,6 +877,7 @@ export function getEstadualMatchesForRound(state, estadual, round) {
   if (estadual.format === "sergipano") return getSergipanoMatchesForRound(state, estadual, round);
   if (estadual.format === "matogrossense") return getMatogrossenseMatchesForRound(state, estadual, round);
   if (estadual.format === "sulmatogrossense") return getSulmatogrossenseMatchesForRound(state, estadual, round);
+  if (estadual.format === "candango") return getCandangoMatchesForRound(state, estadual, round);
 
   const out = [];
   // Grupos
@@ -912,6 +941,7 @@ export function advanceEstadualPhase(state, estadual, season, rng) {
   if (estadual.format === "sergipano") return advanceSergipanoEstadual(state, estadual, season, rng);
   if (estadual.format === "matogrossense") return advanceMatogrossenseEstadual(state, estadual, season, rng);
   if (estadual.format === "sulmatogrossense") return advanceSulmatogrossenseEstadual(state, estadual, season, rng);
+  if (estadual.format === "candango") return advanceCandangoEstadual(state, estadual, season, rng);
 
   if (estadual.phase === "groups") {
     const groupsDone = estadual.groupIds.every(gid =>
@@ -1099,6 +1129,10 @@ export function applyEstadualKnockoutResult(estadual, leg, rng) {
   }
   if (estadual.format === "sulmatogrossense") {
     applySulmatogrossenseKnockoutResult(estadual.knockout, leg, rng);
+    return;
+  }
+  if (estadual.format === "candango") {
+    applyCandangoKnockoutResult(estadual.knockout, leg, rng);
     return;
   }
   // Encontra o tie
@@ -2208,6 +2242,47 @@ function advanceSulmatogrossenseEstadual(state, estadual, season, rng) {
   const ko = estadual.knockout;
   if (!ko) return;
   advanceSulmatogrossenseKnockout(ko);
+  estadual.phase = ko.phase;
+  if (ko.phase === "done" && ko.champion && !estadual.champion) {
+    estadual.champion = ko.champion;
+  }
+}
+
+// -------------------- Formato Candango / DF (bifurcações) --------------------
+
+// Jogos do Candango numa rodada: 1ª fase (1..9, pontos corridos); mata-mata
+// (10/11 semis, 12/13 final, ida/volta) via knockout.
+function getCandangoMatchesForRound(state, estadual, round) {
+  const out = [];
+  if (round <= CANDANGO_PHASE1_ROUNDS) {
+    const comp = state.competitions.estadual_df;
+    if (comp) for (const m of comp.fixtures) {
+      if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_df" });
+    }
+    return out;
+  }
+  if (!estadual.knockout) return out;
+  for (const entry of getCandangoKnockoutLegs(estadual.knockout, round)) {
+    const kind = entry.kind === "final" ? "final" : "semi";
+    out.push({ match: entry.leg, kind, tie: entry.tie });
+  }
+  return out;
+}
+
+// Avança o Candango: cria o mata-mata (top 4) ao fim da 1ª fase.
+function advanceCandangoEstadual(state, estadual, season, rng) {
+  if (estadual.phase === "league") {
+    const comp = state.competitions.estadual_df;
+    if (comp && comp.fixtures.every(m => m.played)) {
+      const qualified = getCandangoQualified(comp, state.teams);
+      estadual.knockout = createCandangoKnockout(qualified);
+      estadual.phase = "semis";
+    }
+    return;
+  }
+  const ko = estadual.knockout;
+  if (!ko) return;
+  advanceCandangoKnockout(ko);
   estadual.phase = ko.phase;
   if (ko.phase === "done" && ko.champion && !estadual.champion) {
     estadual.champion = ko.champion;
