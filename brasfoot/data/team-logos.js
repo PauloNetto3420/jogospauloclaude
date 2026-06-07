@@ -68,4 +68,267 @@ export const TEAM_LOGOS = {
   stc:  "src/images/santacruz.png",
   vol:  "src/images/volta.png",
   ypi:  "src/images/ypiranga_rs.png",
+
+  // ===== Estaduais — Acre (AC) =====
+  rba:  "src/images/Escudorbfc.png",
+  gav:  "src/images/Galvez_ac.png",
+  hum:  "src/images/humaita-ac.6915acfd.png",
+  idp:  "src/images/Escudoindependenciafc.png",
+  scz:  "src/images/Santa_Cruz-AC.png",
+  vac:  "src/images/ADVascoAC.png",
+  adg:  "src/images/Escudoadesg.png",
+  sfa:  "src/images/Escudo_do_São_Francisco_do_Acre.png",
+
+  // ===== Estaduais — Alagoas (AL) =====
+  csa:  "src/images/CSA_logo.png",
+  asa:  "src/images/EscudoASA.svg.png",
+  mur:  "src/images/Murici_FC_(2017).png",
+  czl:  "src/images/Escudo_do_Cruzeiro_de_Arapiraca.png",
+  crp:  "src/images/EscudoAACoruripe.png",
+  pen:  "src/images/Penedense-AL.png",
+  cse:  "src/images/CSE_logo.svg.png",
+
+  // ===== Estaduais — Amazonas (AM) =====
+  nac:  "src/images/Nacional_FC_Amazonas_2021.png",
+  mns:  "src/images/Escudo_do_Manaus_Futebol_Clube.png",
+  mna:  "src/images/Manauara_EC-AM_(BRA)_logo.png",
+  pso:  "src/images/Princesa_do_Solimões-AM.png",
+  par:  "src/images/ParintinsFC.png",
+  sra:  "src/images/São_Raimundo-AM_2017.png",
+  itc:  "src/images/Itacoatiara_FC-49.png",
+
+  // ===== Estaduais — Amapá (AP) =====
+  trm:  "src/images/Trem_Desportivo_Clube.png",
+  mcp:  "src/images/Esporte_Clube_Macapá.png",
+  sap:  "src/images/Santos_Futebol_Clube_(Macapá)_logo.png",
+  yap:  "src/images/Ypiranga_Clube_-_logo.png",
+  ora:  "src/images/OratórioAmapá.png",
+  iap:  "src/images/Logo_Independente-AP.png",
+  spa:  "src/images/São_Paulo_Futebol_Clube_(Macapá).png",
+  vap:  "src/images/vasco-futebol-clube-de-sapiranga-rs.png",
+
+  // ===== Estaduais — Bahia (BA) =====
+  ala:  "src/images/AA_Alagoinhas_-_BA.svg.png",
+  bfe:  "src/images/Associação_Desportiva_Bahia_de_Feira.png",
+  bci:  "src/images/Barcelona-BA.png",
+  gal:  "src/images/Galícia_Esporte_Clube.png",
+  jac:  "src/images/ECJacuipense.png",
+  jeq:  "src/images/JequiéFutebol.png",
+  jza:  "src/images/Sociedade_Desportiva_Juazeirense_2026.png",
+  psc:  "src/images/Porto_SC_(Bahia)_escudo.png",
+
+  // ===== Estaduais — Ceará (CE) =====
+  fec:  "src/images/Escudo_do_Ferroviário_Atlético_Clube.png",
+  mrc:  "src/images/Maracanã_Esporte_Clube.png",
+  hor:  "src/images/HorizonteFC.png",
+  qui:  "src/images/Quixada_logo.png",
+  mgp:  "src/images/Escud_do_Maranguape_FC_2021.png",
+  tir:  "src/images/logo_252.png",
+
+  // ===== Estaduais — Distrito Federal (DF) =====
+  gam:  "src/images/SEGama.png",
+  bsl:  "src/images/Brasiliense_Futebol_Clube.png",
+  cei:  "src/images/Ceilândia_EC.png",
+  sob:  "src/images/SobradinhoEC.png",
+  smb:  "src/images/Samambaia_Futebol_Clube_escudo.png",
+  cap:  "src/images/Capital_CF_escudo_(2024).png",
+  rbr:  "src/images/RealBrasíliaFC.svg.png",
+  pno:  "src/images/ParanoáEC2022.png",
+  aru:  "src/images/ARUC-DF.jpg",
+  bdf:  "src/images/BrasiliaFC_(2020_logo).png",
+
+  // ===== Estaduais — Espírito Santo (ES) =====
+  rbc:  "src/images/Rio_Branco_Atlético_Clube.png",
+  def:  "src/images/Desportiva_Ferroviária.png",
+  rno:  "src/images/RealNoroesteCFC.png",
+  pvi:  "src/images/Escudo_Porto_Vitória.png",
+  vix:  "src/images/Escudo_Vitória.png",
+  rbv:  "src/images/Rio_Branco-VN.png",
+  vlv:  "src/images/Vilavelhense_VV.png",
+  cxb:  "src/images/S.C.-CAPIXABA.png",
+  ser:  "src/images/serra.png",
+  fte:  "src/images/ESCUDO_DO_FORTE_FC_ES.png",
+
+  // ===== Estaduais — Goiás (GO) =====
+  crc:  "src/images/Escudo_crac_png.png",
+  inh:  "src/images/InhumasEC.png",
+  gtb:  "src/images/Goiatuba_Esporte_Clube_logo.png",
+  jta:  "src/images/Escudo_jataiense_2017w.png",
+  apa:  "src/images/Aparecidense2022.png",
+  abe:  "src/images/ABECAT_Ouvidorense_(Logo_2025).svg.png",
+  cox:  "src/images/Centro_Oeste_FC.png",
+  apl:  "src/images/AA_Anapolina-06.svg.png",
+
+  // ===== Estaduais — Maranhão (MA) =====
+  sam:  "src/images/NOVO_ESCUDO_SAMPAIO_CORRÊA.png",
+  mot:  "src/images/Moto_Club_logo.png",
+  ipe:  "src/images/IAPEfc.png",
+  tnt:  "src/images/Escudo_Tuntum_EC.png",
+  lum:  "src/images/luminense-atletico-clube-logo-png_seeklogo-656535.png",
+  itz:  "src/images/ITZ_Sport.png",
+  imp:  "src/images/SImperatrizD.png",
+
+  // ===== Estaduais — Minas Gerais (MG) =====
+  tom:  "src/images/TombenseFC.png",
+  ube:  "src/images/UEC1.1-768x1012.PNG",
+  bet:  "src/images/Logo_Betim_Futebol.png",
+  itb:  "src/images/Logo_Itabirito.png",
+  dgv:  "src/images/democrata.png",
+  urt:  "src/images/Escudo-U.R.T.png",
+  poa:  "src/images/Pouso_Alegre_Futebol_Clube.png",
+  nor:  "src/images/Logo_do_North_Esporte_Clube.png",
+
+  // ===== Estaduais — Mato Grosso do Sul (MS) =====
+  oms:  "src/images/Escudo_OPERÁRIO_FC-MS.png",
+  bat:  "src/images/Bataguassu-MS.png",
+  nav:  "src/images/CE_Naviraiense_escudo.png",
+  pan:  "src/images/FC_Pantanal-MS_(BRA)_2025.png",
+  crm:  "src/images/Costa_Rica_Esporte_Clube.png",
+  agn:  "src/images/ECAguiaNegra.png",
+  dou:  "src/images/DouradosAC.png",
+  cbe:  "src/images/Escudo_do_Corumbaense_FC.png",
+  ivi:  "src/images/IvinhemaFC.png",
+  cra:  "src/images/CR_Aquidauana-MS.png",
+
+  // ===== Estaduais — Mato Grosso (MT) =====
+  mix:  "src/images/Club_Mixto_Esporte_Clube_(escudo_antigo).png",
+  luv:  "src/images/Luverdense_(3_stars).png",
+  ovg:  "src/images/Operário_Varzea-grandense.png",
+  urd:  "src/images/UniãoRondonópolis.png",
+  nmt:  "src/images/nova muntum.png",
+  ssn:  "src/images/Escudo_do_Sport_Sinop.png",
+  pri:  "src/images/PrimaveraAC.png",
+  chp:  "src/images/ChapadaFC.png",
+  vgd:  "src/images/VárzeaGrandeEC2025.png",
+
+  // ===== Estaduais — Pará (PA) =====
+  srp:  "src/images/SaoRaimundoPA.png",
+  cpp:  "src/images/Escudo_CPEC.png",
+  tun:  "src/images/Tuna_Luso_1903.svg.png",
+  cmt:  "src/images/CametaSC.png",
+  sro:  "src/images/SantaRosaEC.png",
+  sfp:  "src/images/São_Francisco_Futebol_Clube_Santarém_Pará.png",
+  bgp:  "src/images/BragantinoCP2018.png",
+  cst:  "src/images/Castanhal_Esporte_Clube.svg.png",
+  ind:  "src/images/IndependenteAC.png",
+  agu:  "src/images/Águia_de_Marabá.png",
+
+  // ===== Estaduais — Paraíba (PB) =====
+  acj:  "src/images/atletico pb.png",
+  cmp:  "src/images/Campinense_Clube_logo.png",
+  cfp:  "src/images/ConfiançaSapé.png",
+  epa:  "src/images/Esporte_Clube_de_Patos_logo.png",
+  ndp:  "src/images/NacionalPatos.png",
+  pmb:  "src/images/Escudo_Pombal.png",
+  sbr:  "src/images/Serra_Branca_Esporte_Clube.png",
+  sou:  "src/images/SousaEC.png",
+  trz:  "src/images/Treze_Futebol_Clube_logo.svg.png",
+
+  // ===== Estaduais — Pernambuco (PE) =====
+  ret:  "src/images/Retrô_FC_Brasil-PE_(BRA).png",
+  mag:  "src/images/Sport_Club_Maguary.png",
+  dec:  "src/images/SEDecisãoFC.png",
+  jag:  "src/images/72999_logo_jaguar_20260219155233.png",
+  vdt:  "src/images/AADVitoriaT.png",
+
+  // ===== Estaduais — Piauí (PI) =====
+  api:  "src/images/Escudo_Clube_Atlético_Piauiense.png",
+  alt:  "src/images/Associação_Atlética_de_Altos.png",
+  flp:  "src/images/FluminenseECpiaui.png",
+  oei:  "src/images/AAOeirense.png",
+  pny:  "src/images/Escudo_parnahyba.png",
+  pia:  "src/images/PiauiEC.png",
+  csb:  "src/images/AACoriSabba.png",
+  ter:  "src/images/teresina_ec_pi.png",
+
+  // ===== Estaduais — Paraná (PR) =====
+  sjp:  "src/images/Independente_Futebol_São_Joseense.png",
+  cav:  "src/images/FC_Cascavel.png",
+  foz:  "src/images/FOZ-FC-2014-229x300_(1).png",
+  cia:  "src/images/Cianorte.png",
+  azu:  "src/images/Azuriz_FC.png",
+  adr:  "src/images/Clube_Andraus_Brasil_Ltda_(2019).png",
+  glm:  "src/images/Galo_ADAP.png",
+
+  // ===== Estaduais — Rio de Janeiro (RJ) =====
+  ban:  "src/images/Bangu_escudo.png",
+  boa:  "src/images/Logo_Boavista_FC.png",
+  mad:  "src/images/Madureira_EC_(RJ).svg.png",
+  mca:  "src/images/Maricá_Futebol_Clube_logo.png",
+  nig:  "src/images/Nova_Iguaçu_Futebol_Clube_(logo).svg.png",
+  samr: "src/images/Sampaio_Corrêa_RJ.png",
+  porj: "src/images/Associação_Atlética_Portuguesa-RJ.png",
+
+  // ===== Estaduais — Rio Grande do Norte (RN) =====
+  abc:  "src/images/ABC_FC_-_RN.svg.png",
+  arn:  "src/images/AmericaFC-RN.svg.png",
+  glb:  "src/images/GloboFC2020.png",
+  lag:  "src/images/Logo_Clube_Laguna_SAF.svg.png",
+  ptm:  "src/images/Potiguar_de_Mossoro_logo.png",
+  psd:  "src/images/Escudo_do_Potyguar.png",
+  qfc:  "src/images/Quinho_Futebol_Clube_SAF.png",
+  scn:  "src/images/Santa_Cruz_Futebol_Clube_RN_logo.png",
+
+  // ===== Estaduais — Rondônia (RO) =====
+  pvh:  "src/images/PortoVelhoEC.png",
+  gpr:  "src/images/Guaporé_FC.png",
+  jip:  "src/images/Ji-ParanáFutebolClube.png",
+  gen:  "src/images/SCGenusR.png",
+  uca:  "src/images/SEUniaoCacoalense.png",
+  bvi:  "src/images/BarcelonaFCVilhena.png",
+
+  // ===== Estaduais — Roraima (RR) =====
+  gas:  "src/images/GASampaio_(1).png",
+  srr:  "src/images/Escudo_do_São_Raimundo-RR.png",
+  bre:  "src/images/BaréEC_logo.png",
+  mro:  "src/images/Monte_Roraima_Futebol.png",
+  riv:  "src/images/Escudo_do_River_RR.png",
+  pro:  "src/images/ProgressoRR.png",
+  atr:  "src/images/ARCRoraima_2018.png",
+  rng:  "src/images/Atlético_Rio_Negro_RR.png",
+  nrr:  "src/images/nautico rr.png",
+
+  // ===== Estaduais — Rio Grande do Sul (RS) =====
+  sjo:  "src/images/Esporte_Clube_São_José_logo.png",
+  slz:  "src/images/Esporte_Clube_São_Luiz_logo.svg.png",
+  gby:  "src/images/guarany-futebol-clube-bage-logo-png_seeklogo-649044.png",
+  ave:  "src/images/Esporte_Clube_Avenida_logo.png",
+  nha:  "src/images/Esporte_Clube_Novo_Hamburgo.png",
+  mon:  "src/images/Monsoon_Futebol_Clube_logo.png",
+  ism:  "src/images/Inter_SM.png",
+
+  // ===== Estaduais — Santa Catarina (SC) =====
+  cbo:  "src/images/Escudo_do_Camboriú_FC_(2022).png",
+  ccd:  "src/images/Concórdia_Atlético_Clube.png",
+  mdi:  "src/images/Marcílio_Dias.png",
+  jec:  "src/images/Joinville-SC.png",
+  cre:  "src/images/CACarlos_Renaux.png",
+  sca:  "src/images/SANTA_CATARINA.png",
+
+  // ===== Estaduais — Sergipe (SE) =====
+  sgp:  "src/images/EscudoCSSergipe.svg.png",
+  lgt:  "src/images/LagartoFC.png",
+  flc:  "src/images/Falcon_FC.png",
+  ase:  "src/images/AmericaSE.png",
+  gpf:  "src/images/Guarany_Futebol_Clube_logo.png",
+  dor:  "src/images/Dorense_FC_escudo.png",
+  agl:  "src/images/ADAtléticaGloriense.png",
+  dac:  "src/images/desportiva aracaju.png",
+
+  // ===== Estaduais — São Paulo (SP) =====
+  vel:  "src/images/Escudo_Oficial_da_Associação_Esportiva_Velo_Clube_Rioclarense.svg.png",
+  por:  "src/images/Portuguesa_de_Desportos.png",
+  pma:  "src/images/Esporte_Clube_Primavera_logo.png",
+  cpv:  "src/images/Capivariano_FC.png",
+  nrt:  "src/images/esporte-clube-noroeste-bauru-sao-paulo-logo-png_seeklogo-49315.png",
+
+  // ===== Estaduais — Tocantins (TO) =====
+  tec:  "src/images/Tocantinopolis_EC.svg.png",
+  uni:  "src/images/União_Atlético_Clube_(Tocantins).png",
+  arg:  "src/images/AraguainaFR.png",
+  cpt:  "src/images/CapitalfcTO.png",
+  gur:  "src/images/Gurupi_Esporte_Clube.png",
+  plm:  "src/images/PalmasFutebolRegatas.png",
+  gri:  "src/images/SC_Guaraí.png",
+  bvt:  "src/images/Bela_Vista_TO.png",
 };

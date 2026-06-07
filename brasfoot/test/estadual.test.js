@@ -53,7 +53,7 @@ function stateWithEstaduais({ seed = 7 } = {}) {
 // createEstaduais não é mais alcançável pelos 4 UFs oficiais — todos viraram
 // formatos especiais. Pra testar o FORMATO DE GRUPOS genérico (fallback),
 // chamamos createOneEstadual diretamente com um UF fictício.
-function groupEstadual({ uf = "PR", n = 6, seed = 7 } = {}) {
+function groupEstadual({ uf = "ZZ", n = 6, seed = 7 } = {}) {
   const rng = createRng(seed);
   const state = {
     season: 2026, currentDate: "2026-02-01", managedTeamId: null,
@@ -89,26 +89,105 @@ function playEstadualToEnd(state, estadual, rng) {
 
 test("createEstaduais: cria 1 estadual por UF oficial com seu formato", () => {
   const { state } = stateWithEstaduais();
-  const formatByUf = { SP: "paulista", RJ: "carioca", MG: "mineiro", RS: "gaucho" };
+  const formatByUf = { SP: "paulista", RJ: "carioca", MG: "mineiro", RS: "gaucho", PR: "paranaense", BA: "baiano", CE: "cearense", PE: "pernambucano", AL: "alagoano", GO: "goiano", SC: "catarinense", PA: "paraense", AC: "acreano", AM: "amazonense", AP: "amapaense", RO: "rondoniense", RR: "roraimense", TO: "tocantinense", MA: "maranhense", PB: "paraibano", PI: "piauiense", RN: "potiguar", SE: "sergipano", MT: "matogrossense", MS: "sulmatogrossense", DF: "candango", ES: "capixaba" };
+  // Fase inicial: a maioria começa em "groups"; ligas (turno único) em "league";
+  // o Amazonense começa no 1º turno ("t1_groups").
+  const initialPhase = { baiano: "league", pernambucano: "league", alagoano: "league", acreano: "league", amapaense: "league", rondoniense: "league", roraimense: "league", tocantinense: "league", maranhense: "league", paraibano: "league", piauiense: "league", potiguar: "league", sergipano: "league", matogrossense: "league", sulmatogrossense: "league", candango: "league", capixaba: "league", amazonense: "t1_groups" };
   for (const uf of ESTADUAL_STATES) {
     assert.ok(state.estaduais[uf], `estadual de ${uf} existe`);
     assert.equal(state.estaduais[uf].uf, uf);
     assert.equal(state.estaduais[uf].format, formatByUf[uf], `${uf} usa formato ${formatByUf[uf]}`);
-    assert.equal(state.estaduais[uf].phase, "groups", "começa na fase de grupos");
+    assert.equal(state.estaduais[uf].phase, initialPhase[formatByUf[uf]] || "groups", "fase inicial correta");
   }
 });
 
 test("UF de grupos com menos de 4 times não gera estadual", () => {
-  // UF fictício (PR) com apenas 3 times — abaixo do mínimo de 4 do grupo.
-  // (createEstaduais só cria os 4 oficiais; aqui validamos via teamIds < 4.)
+  // UF fictício (ZZ, não-oficial) com apenas 3 times — abaixo do mínimo de 4.
+  // (createEstaduais só cria os UFs oficiais; aqui validamos via teamIds < 4.)
   const rng = createRng(1);
   const mini = { season: 2026, teams: {}, players: {}, competitions: {} };
   for (let i = 0; i < 3; i++) {
-    const t = createTeam({ id: `PR${i}`, name: `x`, shortName: `x`, city: "c", state: "PR", reputation: 60, colors: { primary: "#000", secondary: "#fff" } });
+    const t = createTeam({ id: `ZZ${i}`, name: `x`, shortName: `x`, city: "c", state: "ZZ", reputation: 60, colors: { primary: "#000", secondary: "#fff" } });
     mini.teams[t.id] = t;
   }
   const es = createEstaduais(mini, 2026, rng);
-  assert.equal(es.PR, undefined, "PR não é UF oficial — sem estadual");
+  assert.equal(es.ZZ, undefined, "ZZ não é UF oficial — sem estadual");
+});
+
+// Integração do Cearense: o formato mais complexo (2 fases de grupos), dirigido
+// pelos helpers reais do estadual.js (getMatchesForRound + advanceEstadualPhase).
+test("Cearense: 1ª fase → 2ª fase (nova comp) → mata-mata → campeão", () => {
+  const { state, rng } = stateWithEstaduais();
+  const ce = state.estaduais.CE;
+  assert.equal(ce.format, "cearense");
+  assert.equal(ce.phase, "groups");
+
+  playEstadualToEnd(state, ce, rng);
+
+  assert.ok(state.competitions.estadual_ce_p2, "2ª fase foi criada em runtime");
+  assert.equal(state.competitions.estadual_ce_p2.fixtures.length, 9, "2ª fase tem 9 jogos");
+  assert.equal(ce.phase, "done", "chega ao fim");
+  assert.ok(ce.champion, "tem campeão");
+  assert.ok(ce.teams.includes(ce.champion), "campeão participou");
+});
+
+// Integração do Pernambucano: liga → playoff (3º-6º) → semis → final, dirigido
+// pelos helpers reais do estadual.js.
+test("Pernambucano: liga → playoff → semis → final → campeão", () => {
+  const { state, rng } = stateWithEstaduais();
+  const pe = state.estaduais.PE;
+  assert.equal(pe.format, "pernambucano");
+  assert.equal(pe.phase, "league");
+
+  playEstadualToEnd(state, pe, rng);
+
+  assert.ok(pe.knockout, "mata-mata criado");
+  assert.equal(pe.knockout.playoffs.length, 2, "tem playoff 3º-6º");
+  assert.equal(pe.phase, "done");
+  assert.ok(pe.champion && pe.teams.includes(pe.champion), "campeão participou");
+});
+
+// Integração do Alagoano: liga → semis (1×4,2×3) → final, pelo fluxo real.
+test("Alagoano: liga → semis → final → campeão", () => {
+  const { state, rng } = stateWithEstaduais();
+  const al = state.estaduais.AL;
+  assert.equal(al.format, "alagoano");
+  assert.equal(al.phase, "league");
+  playEstadualToEnd(state, al, rng);
+  assert.ok(al.knockout && al.knockout.semis.length === 2, "semis criadas");
+  assert.equal(al.phase, "done");
+  assert.ok(al.champion && al.teams.includes(al.champion), "campeão participou");
+});
+
+// Integração do Goiano: 3 grupos cruzados (8 rodadas) → mata-mata top 8.
+test("Goiano: grupos (8 rodadas) → quartas/semis/final → campeão", () => {
+  const { state, rng } = stateWithEstaduais();
+  const go = state.estaduais.GO;
+  assert.equal(go.format, "goiano");
+  const p1 = state.competitions.estadual_go;
+  assert.equal(Math.max(...p1.fixtures.map(m => m.round)), 8, "1ª fase em 8 rodadas exatas");
+  playEstadualToEnd(state, go, rng);
+  assert.ok(go.knockout && go.knockout.quarters.length === 4, "quartas criadas");
+  assert.equal(go.phase, "done");
+  assert.ok(go.champion && go.teams.includes(go.champion), "campeão participou");
+});
+
+// Integração do Amazonense: dois turnos + grande final, pelo fluxo real.
+test("Amazonense: 1º turno → 2º turno → grande final → campeão", () => {
+  const { state, rng } = stateWithEstaduais();
+  const am = state.estaduais.AM;
+  assert.equal(am.format, "amazonense");
+  assert.equal(am.phase, "t1_groups");
+
+  playEstadualToEnd(state, am, rng);
+
+  assert.ok(state.competitions.estadual_am_t2, "2º turno foi criado em runtime");
+  assert.ok(am.t1Champion, "tem campeão do 1º turno");
+  assert.ok(am.t2Champion, "tem campeão do 2º turno");
+  assert.equal(am.phase, "done");
+  assert.ok(am.champion && am.teams.includes(am.champion), "campeão geral definido");
+  // se mesmo time venceu os 2 turnos, é ele; senão, venceu a grande final
+  if (am.t1Champion === am.t2Champion) assert.equal(am.champion, am.t1Champion);
 });
 
 // Testes do FORMATO DE GRUPOS genérico (fallback), via createOneEstadual.
