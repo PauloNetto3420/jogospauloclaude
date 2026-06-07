@@ -139,8 +139,13 @@ import {
   applySergipanoKnockoutResult, getSergipanoKnockoutLegs, getSergipanoQualified,
   SERGIPANO_PHASE1_ROUNDS, SERGIPANO_TOTAL_ROUNDS, SERGIPANO_CHAMPION_PRIZE,
 } from "./sergipano.js";
+import {
+  createMatogrossensePhase1, createMatogrossenseKnockout, advanceMatogrossenseKnockout,
+  applyMatogrossenseKnockoutResult, getMatogrossenseKnockoutLegs, getMatogrossenseQualified,
+  MATOGROSSENSE_PHASE1_ROUNDS, MATOGROSSENSE_TOTAL_ROUNDS, MATOGROSSENSE_CHAMPION_PRIZE,
+} from "./matogrossense.js";
 
-export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA", "AC", "AM", "AP", "RO", "RR", "TO", "MA", "PB", "PI", "RN", "SE"];
+export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA", "AC", "AM", "AP", "RO", "RR", "TO", "MA", "PB", "PI", "RN", "SE", "MT"];
 
 const ESTADUAL_NAMES = {
   SP: "Campeonato Paulista",
@@ -166,6 +171,7 @@ const ESTADUAL_NAMES = {
   PI: "Campeonato Piauiense",
   RN: "Campeonato Potiguar",
   SE: "Campeonato Sergipano",
+  MT: "Campeonato Mato-grossense",
 };
 
 // Cria todos os estaduais. Retorna o objeto meta (state.estaduais).
@@ -197,6 +203,7 @@ export function createEstaduais(state, season, rng) {
     if (uf === "PI") { estaduais.PI = createPiauienseEstadual(state, season, rng); continue; }
     if (uf === "RN") { estaduais.RN = createPotiguarEstadual(state, season, rng); continue; }
     if (uf === "SE") { estaduais.SE = createSergipanoEstadual(state, season, rng); continue; }
+    if (uf === "MT") { estaduais.MT = createMatogrossenseEstadual(state, season, rng); continue; }
     const teamIds = Object.values(state.teams)
       .filter(t => t.state === uf)
       .map(t => t.id);
@@ -672,6 +679,28 @@ function createSergipanoEstadual(state, season, rng) {
   };
 }
 
+// Campeonato Mato-grossense (liga turno único 10 times + quartas jogo único +
+// semis/final ida/volta). 1ª fase 1..9, quartas 10, semis 11/12, final 13/14.
+// format: "matogrossense".
+function createMatogrossenseEstadual(state, season, rng) {
+  const phase1 = createMatogrossensePhase1({ season });
+  state.competitions.estadual_mt = phase1;
+  return {
+    uf: "MT",
+    name: ESTADUAL_NAMES.MT,
+    format: "matogrossense",
+    teams: [...phase1.teams],
+    phase: "league",            // league | quarters | semis | final | done
+    knockout: null,
+    champion: null,
+    prize: MATOGROSSENSE_CHAMPION_PRIZE,
+    schedule: {
+      groupRounds: MATOGROSSENSE_PHASE1_ROUNDS,   // 1..9
+      finalRound: MATOGROSSENSE_TOTAL_ROUNDS,     // 14
+    },
+  };
+}
+
 // Campeonato Paulista (formato suíço). Monta a 1ª fase a partir dos potes
 // oficiais e registra a competição. O mata-mata é criado quando a 1ª fase
 // termina (advanceEstadualPhase). Marcado com format: "paulista" pra que os
@@ -789,6 +818,7 @@ export function getEstadualMatchesForRound(state, estadual, round) {
   if (estadual.format === "piauiense") return getPiauienseMatchesForRound(state, estadual, round);
   if (estadual.format === "potiguar") return getPotiguarMatchesForRound(state, estadual, round);
   if (estadual.format === "sergipano") return getSergipanoMatchesForRound(state, estadual, round);
+  if (estadual.format === "matogrossense") return getMatogrossenseMatchesForRound(state, estadual, round);
 
   const out = [];
   // Grupos
@@ -850,6 +880,7 @@ export function advanceEstadualPhase(state, estadual, season, rng) {
   if (estadual.format === "piauiense") return advancePiauienseEstadual(state, estadual, season, rng);
   if (estadual.format === "potiguar") return advancePotiguarEstadual(state, estadual, season, rng);
   if (estadual.format === "sergipano") return advanceSergipanoEstadual(state, estadual, season, rng);
+  if (estadual.format === "matogrossense") return advanceMatogrossenseEstadual(state, estadual, season, rng);
 
   if (estadual.phase === "groups") {
     const groupsDone = estadual.groupIds.every(gid =>
@@ -1029,6 +1060,10 @@ export function applyEstadualKnockoutResult(estadual, leg, rng) {
   }
   if (estadual.format === "sergipano") {
     applySergipanoKnockoutResult(estadual.knockout, leg, rng);
+    return;
+  }
+  if (estadual.format === "matogrossense") {
+    applyMatogrossenseKnockoutResult(estadual.knockout, leg, rng);
     return;
   }
   // Encontra o tie
@@ -2056,6 +2091,47 @@ function advanceSergipanoEstadual(state, estadual, season, rng) {
   const ko = estadual.knockout;
   if (!ko) return;
   advanceSergipanoKnockout(ko);
+  estadual.phase = ko.phase;
+  if (ko.phase === "done" && ko.champion && !estadual.champion) {
+    estadual.champion = ko.champion;
+  }
+}
+
+// -------------------- Formato Mato-grossense (bifurcações) --------------------
+
+// Jogos do Mato-grossense numa rodada: 1ª fase (1..9, pontos corridos); mata-mata
+// (10 quartas jogo único, 11/12 semis, 13/14 final ida/volta) via knockout.
+function getMatogrossenseMatchesForRound(state, estadual, round) {
+  const out = [];
+  if (round <= MATOGROSSENSE_PHASE1_ROUNDS) {
+    const comp = state.competitions.estadual_mt;
+    if (comp) for (const m of comp.fixtures) {
+      if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_mt" });
+    }
+    return out;
+  }
+  if (!estadual.knockout) return out;
+  for (const entry of getMatogrossenseKnockoutLegs(estadual.knockout, round)) {
+    const kind = entry.kind === "final" ? "final" : "semi";
+    out.push({ match: entry.leg, kind, tie: entry.tie });
+  }
+  return out;
+}
+
+// Avança o Mato-grossense: cria o mata-mata (top 6) ao fim da 1ª fase.
+function advanceMatogrossenseEstadual(state, estadual, season, rng) {
+  if (estadual.phase === "league") {
+    const comp = state.competitions.estadual_mt;
+    if (comp && comp.fixtures.every(m => m.played)) {
+      const qualified = getMatogrossenseQualified(comp, state.teams);
+      estadual.knockout = createMatogrossenseKnockout(qualified);
+      estadual.phase = "quarters";
+    }
+    return;
+  }
+  const ko = estadual.knockout;
+  if (!ko) return;
+  advanceMatogrossenseKnockout(ko);
   estadual.phase = ko.phase;
   if (ko.phase === "done" && ko.champion && !estadual.champion) {
     estadual.champion = ko.champion;

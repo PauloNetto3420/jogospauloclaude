@@ -53,7 +53,7 @@ function stateWithEstaduais({ seed = 7 } = {}) {
 // createEstaduais não é mais alcançável pelos 4 UFs oficiais — todos viraram
 // formatos especiais. Pra testar o FORMATO DE GRUPOS genérico (fallback),
 // chamamos createOneEstadual diretamente com um UF fictício.
-function groupEstadual({ uf = "MT", n = 6, seed = 7 } = {}) {
+function groupEstadual({ uf = "ZZ", n = 6, seed = 7 } = {}) {
   const rng = createRng(seed);
   const state = {
     season: 2026, currentDate: "2026-02-01", managedTeamId: null,
@@ -89,10 +89,10 @@ function playEstadualToEnd(state, estadual, rng) {
 
 test("createEstaduais: cria 1 estadual por UF oficial com seu formato", () => {
   const { state } = stateWithEstaduais();
-  const formatByUf = { SP: "paulista", RJ: "carioca", MG: "mineiro", RS: "gaucho", PR: "paranaense", BA: "baiano", CE: "cearense", PE: "pernambucano", AL: "alagoano", GO: "goiano", SC: "catarinense", PA: "paraense", AC: "acreano", AM: "amazonense", AP: "amapaense", RO: "rondoniense", RR: "roraimense", TO: "tocantinense", MA: "maranhense", PB: "paraibano", PI: "piauiense", RN: "potiguar", SE: "sergipano" };
+  const formatByUf = { SP: "paulista", RJ: "carioca", MG: "mineiro", RS: "gaucho", PR: "paranaense", BA: "baiano", CE: "cearense", PE: "pernambucano", AL: "alagoano", GO: "goiano", SC: "catarinense", PA: "paraense", AC: "acreano", AM: "amazonense", AP: "amapaense", RO: "rondoniense", RR: "roraimense", TO: "tocantinense", MA: "maranhense", PB: "paraibano", PI: "piauiense", RN: "potiguar", SE: "sergipano", MT: "matogrossense" };
   // Fase inicial: a maioria começa em "groups"; ligas (turno único) em "league";
   // o Amazonense começa no 1º turno ("t1_groups").
-  const initialPhase = { baiano: "league", pernambucano: "league", alagoano: "league", acreano: "league", amapaense: "league", rondoniense: "league", roraimense: "league", tocantinense: "league", maranhense: "league", paraibano: "league", piauiense: "league", potiguar: "league", sergipano: "league", amazonense: "t1_groups" };
+  const initialPhase = { baiano: "league", pernambucano: "league", alagoano: "league", acreano: "league", amapaense: "league", rondoniense: "league", roraimense: "league", tocantinense: "league", maranhense: "league", paraibano: "league", piauiense: "league", potiguar: "league", sergipano: "league", matogrossense: "league", amazonense: "t1_groups" };
   for (const uf of ESTADUAL_STATES) {
     assert.ok(state.estaduais[uf], `estadual de ${uf} existe`);
     assert.equal(state.estaduais[uf].uf, uf);
@@ -102,16 +102,16 @@ test("createEstaduais: cria 1 estadual por UF oficial com seu formato", () => {
 });
 
 test("UF de grupos com menos de 4 times não gera estadual", () => {
-  // UF fictício (MT, não-oficial) com apenas 3 times — abaixo do mínimo de 4.
+  // UF fictício (ZZ, não-oficial) com apenas 3 times — abaixo do mínimo de 4.
   // (createEstaduais só cria os UFs oficiais; aqui validamos via teamIds < 4.)
   const rng = createRng(1);
   const mini = { season: 2026, teams: {}, players: {}, competitions: {} };
   for (let i = 0; i < 3; i++) {
-    const t = createTeam({ id: `MT${i}`, name: `x`, shortName: `x`, city: "c", state: "MT", reputation: 60, colors: { primary: "#000", secondary: "#fff" } });
+    const t = createTeam({ id: `ZZ${i}`, name: `x`, shortName: `x`, city: "c", state: "ZZ", reputation: 60, colors: { primary: "#000", secondary: "#fff" } });
     mini.teams[t.id] = t;
   }
   const es = createEstaduais(mini, 2026, rng);
-  assert.equal(es.MT, undefined, "MT não é UF oficial — sem estadual");
+  assert.equal(es.ZZ, undefined, "ZZ não é UF oficial — sem estadual");
 });
 
 // Integração do Cearense: o formato mais complexo (2 fases de grupos), dirigido
