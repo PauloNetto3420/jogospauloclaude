@@ -4,7 +4,8 @@
       "Bash(node --check \"C:/Users/Paulo/Desktop/jogos/brasfoot/src/engine/match.js\")",
       "Bash(git commit -m ' *)",
       "Bash(git add *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(git commit -q -m ' *)"
     ]
   }
 }

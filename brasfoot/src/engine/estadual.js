@@ -129,8 +129,13 @@ import {
   applyPiauienseKnockoutResult, getPiauienseKnockoutLegs, getPiauienseQualified,
   PIAUIENSE_PHASE1_ROUNDS, PIAUIENSE_TOTAL_ROUNDS, PIAUIENSE_CHAMPION_PRIZE,
 } from "./piauiense.js";
+import {
+  createPotiguarPhase1, createPotiguarKnockout, advancePotiguarKnockout,
+  applyPotiguarKnockoutResult, getPotiguarKnockoutLegs, getPotiguarQualified,
+  POTIGUAR_PHASE1_ROUNDS, POTIGUAR_TOTAL_ROUNDS, POTIGUAR_CHAMPION_PRIZE,
+} from "./potiguar.js";
 
-export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA", "AC", "AM", "AP", "RO", "RR", "TO", "MA", "PB", "PI"];
+export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA", "AC", "AM", "AP", "RO", "RR", "TO", "MA", "PB", "PI", "RN"];
 
 const ESTADUAL_NAMES = {
   SP: "Campeonato Paulista",
@@ -154,6 +159,7 @@ const ESTADUAL_NAMES = {
   MA: "Campeonato Maranhense",
   PB: "Campeonato Paraibano",
   PI: "Campeonato Piauiense",
+  RN: "Campeonato Potiguar",
 };
 
 // Cria todos os estaduais. Retorna o objeto meta (state.estaduais).
@@ -183,6 +189,7 @@ export function createEstaduais(state, season, rng) {
     if (uf === "MA") { estaduais.MA = createMaranhenseEstadual(state, season, rng); continue; }
     if (uf === "PB") { estaduais.PB = createParaibanoEstadual(state, season, rng); continue; }
     if (uf === "PI") { estaduais.PI = createPiauienseEstadual(state, season, rng); continue; }
+    if (uf === "RN") { estaduais.RN = createPotiguarEstadual(state, season, rng); continue; }
     const teamIds = Object.values(state.teams)
       .filter(t => t.state === uf)
       .map(t => t.id);
@@ -615,6 +622,27 @@ function createPiauienseEstadual(state, season, rng) {
   };
 }
 
+// Campeonato Potiguar (liga turno único + repescagem + semis/final ida/volta —
+// como o Pernambucano). 1ª fase 1..7, repescagem 8/9, semis 10/11, final 12/13.
+function createPotiguarEstadual(state, season, rng) {
+  const phase1 = createPotiguarPhase1({ season });
+  state.competitions.estadual_rn = phase1;
+  return {
+    uf: "RN",
+    name: ESTADUAL_NAMES.RN,
+    format: "potiguar",
+    teams: [...phase1.teams],
+    phase: "league",            // league | playoffs | semis | final | done
+    knockout: null,
+    champion: null,
+    prize: POTIGUAR_CHAMPION_PRIZE,
+    schedule: {
+      groupRounds: POTIGUAR_PHASE1_ROUNDS,   // 1..7
+      finalRound: POTIGUAR_TOTAL_ROUNDS,     // 13
+    },
+  };
+}
+
 // Campeonato Paulista (formato suíço). Monta a 1ª fase a partir dos potes
 // oficiais e registra a competição. O mata-mata é criado quando a 1ª fase
 // termina (advanceEstadualPhase). Marcado com format: "paulista" pra que os
@@ -730,6 +758,7 @@ export function getEstadualMatchesForRound(state, estadual, round) {
   if (estadual.format === "maranhense") return getMaranhenseMatchesForRound(state, estadual, round);
   if (estadual.format === "paraibano") return getParaibanoMatchesForRound(state, estadual, round);
   if (estadual.format === "piauiense") return getPiauienseMatchesForRound(state, estadual, round);
+  if (estadual.format === "potiguar") return getPotiguarMatchesForRound(state, estadual, round);
 
   const out = [];
   // Grupos
@@ -789,6 +818,7 @@ export function advanceEstadualPhase(state, estadual, season, rng) {
   if (estadual.format === "maranhense") return advanceMaranhenseEstadual(state, estadual, season, rng);
   if (estadual.format === "paraibano") return advanceParaibanoEstadual(state, estadual, season, rng);
   if (estadual.format === "piauiense") return advancePiauienseEstadual(state, estadual, season, rng);
+  if (estadual.format === "potiguar") return advancePotiguarEstadual(state, estadual, season, rng);
 
   if (estadual.phase === "groups") {
     const groupsDone = estadual.groupIds.every(gid =>
@@ -960,6 +990,10 @@ export function applyEstadualKnockoutResult(estadual, leg, rng) {
   }
   if (estadual.format === "piauiense") {
     applyPiauienseKnockoutResult(estadual.knockout, leg, rng);
+    return;
+  }
+  if (estadual.format === "potiguar") {
+    applyPotiguarKnockoutResult(estadual.knockout, leg, rng);
     return;
   }
   // Encontra o tie
@@ -1905,6 +1939,47 @@ function advancePiauienseEstadual(state, estadual, season, rng) {
   const ko = estadual.knockout;
   if (!ko) return;
   advancePiauienseKnockout(ko);
+  estadual.phase = ko.phase;
+  if (ko.phase === "done" && ko.champion && !estadual.champion) {
+    estadual.champion = ko.champion;
+  }
+}
+
+// -------------------- Formato Potiguar (bifurcações) --------------------
+
+// Jogos do Potiguar numa rodada: 1ª fase (1..7, pontos corridos); mata-mata
+// (8/9 repescagem, 10/11 semis, 12/13 final, ida/volta) via knockout.
+function getPotiguarMatchesForRound(state, estadual, round) {
+  const out = [];
+  if (round <= POTIGUAR_PHASE1_ROUNDS) {
+    const comp = state.competitions.estadual_rn;
+    if (comp) for (const m of comp.fixtures) {
+      if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_rn" });
+    }
+    return out;
+  }
+  if (!estadual.knockout) return out;
+  for (const entry of getPotiguarKnockoutLegs(estadual.knockout, round)) {
+    const kind = entry.kind === "final" ? "final" : "semi";
+    out.push({ match: entry.leg, kind, tie: entry.tie });
+  }
+  return out;
+}
+
+// Avança o Potiguar: cria o mata-mata (top 6) ao fim da 1ª fase.
+function advancePotiguarEstadual(state, estadual, season, rng) {
+  if (estadual.phase === "league") {
+    const comp = state.competitions.estadual_rn;
+    if (comp && comp.fixtures.every(m => m.played)) {
+      const qualified = getPotiguarQualified(comp, state.teams);
+      estadual.knockout = createPotiguarKnockout(qualified);
+      estadual.phase = "playoffs";
+    }
+    return;
+  }
+  const ko = estadual.knockout;
+  if (!ko) return;
+  advancePotiguarKnockout(ko);
   estadual.phase = ko.phase;
   if (ko.phase === "done" && ko.champion && !estadual.champion) {
     estadual.champion = ko.champion;
