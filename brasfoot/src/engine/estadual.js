@@ -114,8 +114,13 @@ import {
   applyTocantinenseKnockoutResult, getTocantinenseKnockoutLegs, getTocantinenseQualified,
   TOCANTINENSE_PHASE1_ROUNDS, TOCANTINENSE_TOTAL_ROUNDS, TOCANTINENSE_CHAMPION_PRIZE,
 } from "./tocantinense.js";
+import {
+  createMaranhensePhase1, createMaranhenseKnockout, advanceMaranhenseKnockout,
+  applyMaranhenseKnockoutResult, getMaranhenseKnockoutLegs, getMaranhenseQualified,
+  MARANHENSE_PHASE1_ROUNDS, MARANHENSE_TOTAL_ROUNDS, MARANHENSE_CHAMPION_PRIZE,
+} from "./maranhense.js";
 
-export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA", "AC", "AM", "AP", "RO", "RR", "TO"];
+export const ESTADUAL_STATES = ["SP", "RJ", "MG", "RS", "PR", "BA", "CE", "PE", "AL", "GO", "SC", "PA", "AC", "AM", "AP", "RO", "RR", "TO", "MA"];
 
 const ESTADUAL_NAMES = {
   SP: "Campeonato Paulista",
@@ -136,6 +141,7 @@ const ESTADUAL_NAMES = {
   RO: "Campeonato Rondoniense",
   RR: "Campeonato Roraimense",
   TO: "Campeonato Tocantinense",
+  MA: "Campeonato Maranhense",
 };
 
 // Cria todos os estaduais. Retorna o objeto meta (state.estaduais).
@@ -162,6 +168,7 @@ export function createEstaduais(state, season, rng) {
     if (uf === "RO") { estaduais.RO = createRondonienseEstadual(state, season, rng); continue; }
     if (uf === "RR") { estaduais.RR = createRoraimenseEstadual(state, season, rng); continue; }
     if (uf === "TO") { estaduais.TO = createTocantinenseEstadual(state, season, rng); continue; }
+    if (uf === "MA") { estaduais.MA = createMaranhenseEstadual(state, season, rng); continue; }
     const teamIds = Object.values(state.teams)
       .filter(t => t.state === uf)
       .map(t => t.id);
@@ -531,6 +538,27 @@ function createTocantinenseEstadual(state, season, rng) {
   };
 }
 
+// Campeonato Maranhense (liga turno único + semis/final ida/volta — como o
+// Tocantinense). 1ª fase 1..7, semis 8/9, final 10/11. format: "maranhense".
+function createMaranhenseEstadual(state, season, rng) {
+  const phase1 = createMaranhensePhase1({ season });
+  state.competitions.estadual_ma = phase1;
+  return {
+    uf: "MA",
+    name: ESTADUAL_NAMES.MA,
+    format: "maranhense",
+    teams: [...phase1.teams],
+    phase: "league",            // league | semis | final | done
+    knockout: null,
+    champion: null,
+    prize: MARANHENSE_CHAMPION_PRIZE,
+    schedule: {
+      groupRounds: MARANHENSE_PHASE1_ROUNDS,   // 1..7
+      finalRound: MARANHENSE_TOTAL_ROUNDS,     // 11
+    },
+  };
+}
+
 // Campeonato Paulista (formato suíço). Monta a 1ª fase a partir dos potes
 // oficiais e registra a competição. O mata-mata é criado quando a 1ª fase
 // termina (advanceEstadualPhase). Marcado com format: "paulista" pra que os
@@ -643,6 +671,7 @@ export function getEstadualMatchesForRound(state, estadual, round) {
   if (estadual.format === "rondoniense") return getRondonienseMatchesForRound(state, estadual, round);
   if (estadual.format === "roraimense") return getRoraimenseMatchesForRound(state, estadual, round);
   if (estadual.format === "tocantinense") return getTocantinenseMatchesForRound(state, estadual, round);
+  if (estadual.format === "maranhense") return getMaranhenseMatchesForRound(state, estadual, round);
 
   const out = [];
   // Grupos
@@ -699,6 +728,7 @@ export function advanceEstadualPhase(state, estadual, season, rng) {
   if (estadual.format === "rondoniense") return advanceRondonienseEstadual(state, estadual, season, rng);
   if (estadual.format === "roraimense") return advanceRoraimenseEstadual(state, estadual, season, rng);
   if (estadual.format === "tocantinense") return advanceTocantinenseEstadual(state, estadual, season, rng);
+  if (estadual.format === "maranhense") return advanceMaranhenseEstadual(state, estadual, season, rng);
 
   if (estadual.phase === "groups") {
     const groupsDone = estadual.groupIds.every(gid =>
@@ -858,6 +888,10 @@ export function applyEstadualKnockoutResult(estadual, leg, rng) {
   }
   if (estadual.format === "tocantinense") {
     applyTocantinenseKnockoutResult(estadual.knockout, leg, rng);
+    return;
+  }
+  if (estadual.format === "maranhense") {
+    applyMaranhenseKnockoutResult(estadual.knockout, leg, rng);
     return;
   }
   // Encontra o tie
@@ -1680,6 +1714,47 @@ function advanceTocantinenseEstadual(state, estadual, season, rng) {
   const ko = estadual.knockout;
   if (!ko) return;
   advanceTocantinenseKnockout(ko);
+  estadual.phase = ko.phase;
+  if (ko.phase === "done" && ko.champion && !estadual.champion) {
+    estadual.champion = ko.champion;
+  }
+}
+
+// -------------------- Formato Maranhense (bifurcações) --------------------
+
+// Jogos do Maranhense numa rodada: 1ª fase (1..7, pontos corridos); mata-mata
+// (8/9 semis, 10/11 final, ida/volta) via knockout.
+function getMaranhenseMatchesForRound(state, estadual, round) {
+  const out = [];
+  if (round <= MARANHENSE_PHASE1_ROUNDS) {
+    const comp = state.competitions.estadual_ma;
+    if (comp) for (const m of comp.fixtures) {
+      if (m.round === round) out.push({ match: m, kind: "group", compId: "estadual_ma" });
+    }
+    return out;
+  }
+  if (!estadual.knockout) return out;
+  for (const entry of getMaranhenseKnockoutLegs(estadual.knockout, round)) {
+    const kind = entry.kind === "final" ? "final" : "semi";
+    out.push({ match: entry.leg, kind, tie: entry.tie });
+  }
+  return out;
+}
+
+// Avança o Maranhense: cria o mata-mata (top 4) ao fim da 1ª fase.
+function advanceMaranhenseEstadual(state, estadual, season, rng) {
+  if (estadual.phase === "league") {
+    const comp = state.competitions.estadual_ma;
+    if (comp && comp.fixtures.every(m => m.played)) {
+      const qualified = getMaranhenseQualified(comp, state.teams);
+      estadual.knockout = createMaranhenseKnockout(qualified);
+      estadual.phase = "semis";
+    }
+    return;
+  }
+  const ko = estadual.knockout;
+  if (!ko) return;
+  advanceMaranhenseKnockout(ko);
   estadual.phase = ko.phase;
   if (ko.phase === "done" && ko.champion && !estadual.champion) {
     estadual.champion = ko.champion;
