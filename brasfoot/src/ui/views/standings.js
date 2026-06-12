@@ -1656,6 +1656,25 @@ function renderStandingsSerieD() {
       ${promoted.length ? `<div style="margin-top:6px;font-size:13px">⬆️ <b>Acesso à Série C:</b> ${promoted.map(id => `${teamLogo(id, 16)} ${state.teams[id]?.shortName}`).join(" · ")}</div>` : ""}
     </div>` : "";
 
+  const q = sd.qualification;
+  const chip = (txt) => `<span style="padding:4px 10px;border-radius:14px;background:var(--bg-2);border:1px solid var(--border);font-size:12px">${txt}</span>`;
+  const qualHtml = q ? `
+    <div class="card" style="margin-bottom:12px">
+      <h3>Como os 96 se classificaram</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px">
+        ${chip(`⬇️ <b>${q.sources.serieC.length}</b> rebaixados da Série C`)}
+        ${chip(`🔁 <b>${q.sources.permanencia.length}</b> permanência (oitavas)`)}
+        ${chip(`🏆 <b>${q.sources.estadual.length}</b> vagas estaduais (RNF)`)}
+        ${chip(`📊 <b>${q.sources.rnc.length}</b> ranking (RNC)`)}
+      </div>
+      <details style="margin-top:8px">
+        <summary style="cursor:pointer;font-size:12px;color:var(--muted)">Ranking Nacional das Federações (RNF) · vagas por estado</summary>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:5px;margin-top:8px;font-size:11px">
+          ${q.rnf.map(f => `<span style="padding:3px 7px;border:1px solid var(--border);border-radius:6px">${f.rank}. <b>${f.uf}</b> · ${f.quota} vagas</span>`).join("")}
+        </div>
+      </details>
+    </div>` : "";
+
   const groupsHtml = `
     <div class="card">
       <h3>Fase de grupos <span style="color:var(--muted);font-weight:400;font-size:12px">· 2 melhores de cada avançam (24 líderes + 8 melhores vices = 32)</span></h3>
@@ -1691,6 +1710,7 @@ function renderStandingsSerieD() {
       ${buttons}
     </div>
     ${banner}
+    ${qualHtml}
     ${groupsHtml}
     ${koHtml}
   `;

@@ -11,7 +11,7 @@
 import { sortStandings } from "./season.js";
 import { createCompetition } from "../models/competition.js";
 import { createSerieCPhase1 } from "./serie-c.js";
-import { createSerieD, nextSerieDField, getSerieDPromoted } from "./serie-d.js";
+import { getSerieDPromoted } from "./serie-d.js";
 import { evolvePlayer, generateFreeAgentBatch, rollUpPlayerSeason } from "../models/player.js";
 import { recalcExpenses } from "../models/team.js";
 import { processSeasonEndAcademy, generateSeasonalYouth } from "./academy.js";
@@ -214,19 +214,11 @@ export function endSeason(state, rng) {
         relegated: [],
       };
 
-      // Nova Série D: mantém o campo, troca os 4 que subiram à C pelos 4
-      // rebaixados da C. (Sem rebaixamento nacional na D na Fase 1.)
-      if (doD && state.serieD) {
-        const prevD = state.serieD.groups.flatMap(g => g.teams);
-        const nextField = nextSerieDField(prevD, promotedFromD, relegatedToD);
-        state.serieD = createSerieD({
-          season: newSeason,
-          teamIds: nextField,
-          teams: state.teams,
-          rng,
-          relegatedFromC: relegatedToD,
-        });
-      }
+      // A Série D da próxima temporada é montada na pré-temporada seguinte
+      // (após os estaduais), pelo sistema de vagas. Aqui só guardamos os
+      // rebaixados da C, que entram como vagas garantidas. O state.serieD da
+      // temporada que terminou é mantido até lá (fonte da permanência).
+      if (doD) state.serieDPendingRelegated = relegatedToD;
     }
   }
 

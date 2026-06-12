@@ -20,6 +20,7 @@
 
 import { updateStandings } from "./season.js";
 import { createCompetition } from "../models/competition.js";
+import { computeRanking, getRankedClubsOutsideTopDivisions } from "./ranking.js";
 
 export const SERIE_D_TEAMS = 96;
 export const SERIE_D_GROUPS = 24;
@@ -101,7 +102,7 @@ export function buildRegionalGroups(teamIds, teams, rng) {
 
 // ==================== Criação da Série D ====================
 
-export function createSerieD({ season, teamIds, teams, rng, relegatedFromC = [] }) {
+export function createSerieD({ season, teamIds, teams, rng, relegatedFromC = [], qualification = null }) {
   if (teamIds.length !== SERIE_D_TEAMS) {
     throw new Error(`Série D exige exatamente ${SERIE_D_TEAMS} clubes (recebi ${teamIds.length}).`);
   }
@@ -128,7 +129,91 @@ export function createSerieD({ season, teamIds, teams, rng, relegatedFromC = [] 
     promoted: [],              // 4 (vencedores das quartas)
     champion: null,
     relegatedFromC: [...relegatedFromC],
+    qualification,             // { sources, rnf } — como os 96 se classificaram
   };
+}
+
+// ==================== Sistema de vagas (Fase 2) ====================
+
+// Ranking Nacional das Federações (RNF): ordena as UFs pela soma do RNC dos
+// seus clubes. Quota de vagas estaduais: 1º-5º → 4 · 6º-15º → 3 · 16º+ → 2.
+export function computeRNF(state) {
+  const pts = {};
+  for (const r of computeRanking(state)) pts[r.teamId] = r.points;
+  const ufPts = {};
+  for (const t of Object.values(state.teams)) {
+    if (!t.state) continue;
+    ufPts[t.state] = (ufPts[t.state] || 0) + (pts[t.id] || 0);
+  }
+  return Object.keys(ufPts)
+    .sort((a, b) => ufPts[b] - ufPts[a] || a.localeCompare(b))
+    .map((uf, i) => ({ uf, rank: i + 1, quota: i < 5 ? 4 : i < 15 ? 3 : 2, points: Math.round(ufPts[uf]) }));
+}
+
+// Permanência por campanha: os clubes que chegaram às oitavas do D anterior
+// (16) e não subiram (− 4 promovidos) mantêm a vaga (12).
+export function getSerieDPermanencia(prevSerieD) {
+  if (!prevSerieD?.ko?.r16?.length) return [];
+  const promoted = new Set(prevSerieD.promoted || []);
+  const ids = new Set();
+  for (const tie of prevSerieD.ko.r16) { ids.add(tie.teamAId); ids.add(tie.teamBId); }
+  return [...ids].filter(id => id && !promoted.has(id));
+}
+
+function inTopDivisions(state, id) {
+  for (const cid of ["brasileirao_a", "brasileirao_b", "brasileirao_c_p1"]) {
+    if (state.competitions[cid]?.teams?.includes(id)) return true;
+  }
+  return false;
+}
+
+// Monta o campo de 96 por waterfall de prioridade (com dedup e herança de vaga
+// implícita): rebaixados da C → permanência → vagas estaduais por RNF →
+// preenchimento por RNC. Retorna { field, sources, rnf }.
+export function buildSerieDFieldFull(state, prevSerieD, relegatedFromC = [], target = SERIE_D_TEAMS) {
+  const field = [];
+  const inField = new Set();
+  const sources = { serieC: [], permanencia: [], estadual: [], rnc: [] };
+  const add = (id, src) => {
+    if (!id || inField.has(id) || inTopDivisions(state, id)) return false;
+    inField.add(id); field.push(id); sources[src].push(id); return true;
+  };
+
+  // 1. Rebaixados da Série C (temporada anterior)
+  for (const id of relegatedFromC) add(id, "serieC");
+  // 2. Permanência por campanha (oitavas do D anterior, menos promovidos)
+  for (const id of getSerieDPermanencia(prevSerieD)) add(id, "permanencia");
+  // 3. Vagas estaduais por RNF. Ordem por federação: o CAMPEÃO estadual da
+  //    temporada primeiro (garante vaga), depois os melhores pelo RNC. Se o
+  //    clube já está no campo, a vaga desce ao próximo (herança).
+  const rnf = computeRNF(state);
+  const ranked = getRankedClubsOutsideTopDivisions(state); // [{teamId, points}]
+  const champByUf = {};
+  for (const e of Object.values(state.estaduais || {})) {
+    if (e?.champion && e.uf) champByUf[e.uf] = e.champion;
+  }
+  const byUf = {};
+  for (const r of ranked) {
+    const uf = state.teams[r.teamId]?.state;
+    if (uf) (byUf[uf] = byUf[uf] || []).push(r.teamId);
+  }
+  for (const { uf, quota } of rnf) {
+    let got = 0;
+    const candidates = [];
+    if (champByUf[uf]) candidates.push(champByUf[uf]);
+    for (const id of (byUf[uf] || [])) if (id !== champByUf[uf]) candidates.push(id);
+    for (const id of candidates) {
+      if (got >= quota || field.length >= target) break;
+      if (add(id, "estadual")) got++;
+    }
+  }
+  // 4. Preenchimento das vagas restantes pelo RNC
+  for (const r of ranked) {
+    if (field.length >= target) break;
+    add(r.teamId, "rnc");
+  }
+
+  return { field: field.slice(0, target), sources, rnf };
 }
 
 // ==================== Classificação dos grupos ====================

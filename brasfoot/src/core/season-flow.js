@@ -27,7 +27,7 @@ import {
 } from "../engine/serie-c.js";
 import {
   getSerieDMatchesForRound, applySerieDMatchResult, advanceSerieDPhase,
-  isSerieDDone, getSerieDPromoted,
+  isSerieDDone, getSerieDPromoted, createSerieD, buildSerieDFieldFull,
 } from "../engine/serie-d.js";
 import {
   getEstadualMatchesForRound, advanceEstadualPhase, estadualTotalRounds,
@@ -183,6 +183,8 @@ function finalizeEstadualRound(round) {
 }
 
 function finishEstadualPhase() {
+  // Idempotente: se já transicionou pro nacional, não repremia nem remonta a D.
+  if (state.seasonPhase === "national") return;
   // Garante que todos os estaduais terminaram (simula resto se faltou)
   const maxRound = getMaxEstadualRound();
   for (let r = (state.estadualRound || 1); r <= maxRound; r++) {
@@ -210,6 +212,21 @@ function finishEstadualPhase() {
     });
     log(`🏆 ${champ.shortName} campeão do ${e.name}!`);
   }
+
+  // Monta a Série D da temporada pelo sistema de vagas (após os estaduais):
+  // rebaixados da C (da temporada anterior), permanência por campanha do D
+  // anterior, vagas estaduais por RNF e preenchimento por RNC.
+  try {
+    const relegatedFromC = state.serieDPendingRelegated || [];
+    const prevD = state.serieD || null;   // D da temporada anterior (fonte da permanência)
+    const { field, sources, rnf } = buildSerieDFieldFull(state, prevD, relegatedFromC);
+    state.serieD = createSerieD({
+      season: state.season, teamIds: field, teams: state.teams, rng,
+      relegatedFromC, qualification: { sources, rnf },
+    });
+    state.serieDPendingRelegated = [];
+    log(`Série D ${state.season} montada: ${field.length} clubes (${sources.serieC.length} da C, ${sources.permanencia.length} permanência, ${sources.estadual.length} estaduais, ${sources.rnc.length} ranking).`);
+  } catch (e) { console.error("Falha ao montar Série D:", e); }
 
   // Transição pra temporada nacional
   state.seasonPhase = "national";

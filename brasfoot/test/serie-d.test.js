@@ -10,9 +10,28 @@ import {
   createSerieD, buildRegionalGroups, getSerieDQualified, createSerieDKnockout,
   advanceSerieDPhase, applySerieDKnockoutResult, getSerieDMatchesForRound,
   applySerieDMatchResult, isSerieDDone, getSerieDPromoted, nextSerieDField, pickSerieDField,
+  computeRNF, getSerieDPermanencia, buildSerieDFieldFull,
   SERIE_D_TEAMS, SERIE_D_GROUPS, SERIE_D_GROUP_ROUNDS, SERIE_D_TOTAL_ROUNDS,
   REGION_BY_UF,
 } from "../src/engine/serie-d.js";
+
+// Estado sintético com A/B/C (60) e ~140 clubes sem divisão, espalhados por UF.
+function makeFullState() {
+  const teams = {}, ids = [];
+  for (let i = 0; i < 200; i++) {
+    const id = `f${i}`;
+    teams[id] = { id, name: `F${i}`, shortName: `F${i}`, state: UFS[i % UFS.length], reputation: 40 + (i % 50) };
+    ids.push(id);
+  }
+  const competitions = {
+    brasileirao_a: { teams: ids.slice(0, 20) },
+    brasileirao_b: { teams: ids.slice(20, 40) },
+    brasileirao_c_p1: { teams: ids.slice(40, 60) },
+  };
+  const points = {};
+  for (const t of Object.values(teams)) points[t.id] = t.reputation;
+  return { teams, competitions, rncLog: [{ season: 2025, points }], season: 2026, ids };
+}
 
 const UFS = Object.keys(REGION_BY_UF);
 
@@ -147,6 +166,52 @@ test("nextSerieDField: troca os 4 que subiram pelos 4 rebaixados da C (mantém 9
   for (const id of promotedToC) assert.ok(!next.includes(id), `${id} saiu`);
   for (const id of relegatedFromC) assert.ok(next.includes(id), `${id} entrou`);
   assert.equal(new Set(next).size, 96, "sem duplicatas");
+});
+
+test("computeRNF: ordena federações e aplica quota 4/3/2", () => {
+  const st = makeFullState();
+  const rnf = computeRNF(st);
+  assert.equal(rnf.length, UFS.length, "uma entrada por UF presente");
+  assert.ok(rnf.every((f, i) => f.rank === i + 1), "ranks sequenciais");
+  for (const f of rnf) {
+    const expected = f.rank <= 5 ? 4 : f.rank <= 15 ? 3 : 2;
+    assert.equal(f.quota, expected, `quota de ${f.uf} (rank ${f.rank})`);
+  }
+  // ordenado por pontos desc
+  for (let i = 1; i < rnf.length; i++) assert.ok(rnf[i - 1].points >= rnf[i].points);
+});
+
+test("getSerieDPermanencia: oitavas (16) menos promovidos (4) = 12", () => {
+  const ko = { r16: [], };
+  const r16Teams = [];
+  for (let i = 0; i < 8; i++) { const a = `p${i * 2}`, b = `p${i * 2 + 1}`; ko.r16.push({ teamAId: a, teamBId: b }); r16Teams.push(a, b); }
+  const prevD = { ko, promoted: ["p0", "p2", "p4", "p6"] };
+  const perm = getSerieDPermanencia(prevD);
+  assert.equal(perm.length, 12);
+  for (const id of prevD.promoted) assert.ok(!perm.includes(id), `${id} subiu, não permanece`);
+  assert.equal(getSerieDPermanencia(null).length, 0);
+});
+
+test("buildSerieDFieldFull: 96 únicos, sem A/B/C, com rebaixados da C e fontes somando 96", () => {
+  const st = makeFullState();
+  const relC = ["f60", "f61", "f62", "f63"]; // fora de A/B/C
+  const { field, sources, rnf } = buildSerieDFieldFull(st, null, relC);
+  assert.equal(field.length, 96);
+  assert.equal(new Set(field).size, 96, "sem duplicatas");
+  const abc = new Set([...st.competitions.brasileirao_a.teams, ...st.competitions.brasileirao_b.teams, ...st.competitions.brasileirao_c_p1.teams]);
+  assert.ok(field.every(id => !abc.has(id)), "ninguém de A/B/C");
+  for (const id of relC) { assert.ok(field.includes(id)); assert.ok(sources.serieC.includes(id)); }
+  const total = sources.serieC.length + sources.permanencia.length + sources.estadual.length + sources.rnc.length;
+  assert.equal(total, 96, "fontes somam 96");
+  assert.ok(rnf.length > 0);
+});
+
+test("buildSerieDFieldFull: herança — clube já no campo não consome 2 vagas", () => {
+  const st = makeFullState();
+  // f60 entra como rebaixado da C; se também fosse o melhor do seu estado,
+  // a vaga estadual desceria. Garantimos que aparece uma vez só.
+  const { field } = buildSerieDFieldFull(st, null, ["f60", "f61", "f62", "f63"]);
+  assert.equal(field.filter(id => id === "f60").length, 1);
 });
 
 test("determinismo: mesma seed → mesmo campeão e mesmos acessos", () => {
