@@ -893,10 +893,13 @@ function showSeasonRecap(report) {
       champA: report.champions.brasileirao_a,
       champB: report.champions.brasileirao_b,
       champC: champCId || null,
+      champD: report.serieDChampion || null,
       promoted: report.promoted || [],
       relegated: report.relegated || [],
       promotedFromC: report.promotedFromC || [],
       relegatedToC: report.relegatedToC || [],
+      promotedFromD: report.promotedFromD || [],
+      relegatedToD: report.relegatedToD || [],
       retiredCount: report.retired.length,
       freeAgentsCount: report.freeAgents.length,
     }, () => handleBoardTransition(report));
