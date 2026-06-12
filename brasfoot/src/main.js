@@ -19,7 +19,8 @@ import { pickAITrainingFocus } from "./engine/training.js";
 import { createEstaduais, getEstadualMatchesForRound } from "./engine/estadual.js";
 import { initManager } from "./engine/manager.js";
 import { assignBoardObjective, computeConfidence } from "./engine/board.js";
-import { seedInitialRanking } from "./engine/ranking.js";
+import { seedInitialRanking, getRankedClubsOutsideTopDivisions } from "./engine/ranking.js";
+import { createSerieD, pickSerieDField } from "./engine/serie-d.js";
 import { saveGame, listSaves, deleteSave } from "./db.js";
 import { SERIE_A_SEED, SERIE_B_SEED, SERIE_C_SEED, SERIE_D_SEED } from "../data/teams.seed.js";
 import { state, rng, setState, setRng, ui } from "./core/store.js";
@@ -354,6 +355,11 @@ async function startGame(teamId) {
 
   // Ranking Nacional de Clubes: semente inicial baseada na reputação
   seedInitialRanking(state);
+
+  // Série D: campo inicial = 96 melhores clubes fora de A/B/C pelo RNC,
+  // distribuídos regionalmente em 24 grupos de 4. Roda em 2º plano.
+  const sdField = pickSerieDField(getRankedClubsOutsideTopDivisions(state));
+  state.serieD = createSerieD({ season: 2026, teamIds: sdField, teams: state.teams, rng });
 
   try { await saveGame(state); } catch (e) { console.warn("Save inicial falhou:", e); }
 
