@@ -28,6 +28,7 @@ import {
 import {
   getSerieDMatchesForRound, applySerieDMatchResult, advanceSerieDPhase,
   isSerieDDone, getSerieDPromoted, createSerieD, buildSerieDFieldFull,
+  getUserSerieDMatch, isTeamInSerieD, SERIE_D_TOTAL_ROUNDS,
 } from "../engine/serie-d.js";
 import {
   getEstadualMatchesForRound, advanceEstadualPhase, estadualTotalRounds,
@@ -219,7 +220,13 @@ function finishEstadualPhase() {
   try {
     const relegatedFromC = state.serieDPendingRelegated || [];
     const prevD = state.serieD || null;   // D da temporada anterior (fonte da permanência)
-    const { field, sources, rnf } = buildSerieDFieldFull(state, prevD, relegatedFromC);
+    // Se o usuário dirige um clube sem divisão (escolhido na tela inicial ou
+    // caído da C), garante a vaga dele no campo.
+    const userTeamId = ui.myTeamId;
+    const userDivisionless = userInSerieD() ||
+      (state.serieDPendingRelegated || []).includes(userTeamId);
+    const mustInclude = userDivisionless ? userTeamId : null;
+    const { field, sources, rnf } = buildSerieDFieldFull(state, prevD, relegatedFromC, { mustInclude });
     state.serieD = createSerieD({
       season: state.season, teamIds: field, teams: state.teams, rng,
       relegatedFromC, qualification: { sources, rnf },
@@ -231,6 +238,12 @@ function finishEstadualPhase() {
   // Transição pra temporada nacional
   state.seasonPhase = "national";
   state.estadualRound = 1;
+
+  // Resolve a competição nacional do usuário (pode ter caído pra Série D ou
+  // subido dela). resolveUserCompetition já cobre A/B/C e a Série D.
+  const cid = resolveUserCompetition();
+  if (cid) { ui.myCompId = cid; ui.standingsView = cid; }
+
   log(`Pré-temporada encerrada. Começa o Brasileirão ${state.season}!`);
 }
 
@@ -250,8 +263,11 @@ export function playRound() {
     return;
   }
 
-  const comp = state.competitions[ui.myCompId];
-  const round = getCurrentRound(comp);
+  // Rodada do usuário: na Série D vem do calendário interno (state.serieD);
+  // nas demais, da competição em state.competitions.
+  const round = userInSerieD()
+    ? (state.serieD && !isSerieDDone(state.serieD) ? state.serieD.round : null)
+    : getCurrentRound(state.competitions[ui.myCompId]);
   if (round == null) return;
 
   const cup = state.competitions.copa_brasil;
@@ -296,6 +312,9 @@ function proceedToMatch(next, round) {
     if (next.isCup) {
       applyCupLegToState(next.match, result);
       log(`🏆 Copa: ${state.teams[next.match.homeTeamId].shortName} ${result.score.home}×${result.score.away} ${state.teams[next.match.awayTeamId].shortName}`);
+    } else if (next.isSerieD) {
+      applySerieDMatchResult(state.serieD, next.entry, result, rng);
+      log(`Série D: ${state.teams[next.match.homeTeamId].shortName} ${result.score.home}×${result.score.away} ${state.teams[next.match.awayTeamId].shortName}`);
     } else {
       applyMatchResult(state, next.match, result, comp);
     }
@@ -350,11 +369,30 @@ function collectParallelMatches(round, excludeMatch) {
       }
     }
   }
+  // Série D: quando o usuário JOGA a Série D, as outras partidas da rodada
+  // interna tickam como paralelos (a do usuário é excludeMatch).
+  if (userInSerieD() && state.serieD && !isSerieDDone(state.serieD)) {
+    for (const e of getSerieDMatchesForRound(state.serieD, state.serieD.round)) {
+      if (e.match !== excludeMatch && !e.match.played) {
+        list.push({ match: e.match, isCup: false, serieD: e });
+      }
+    }
+  }
   return list;
+}
+
+// O usuário está gerenciando um clube da Série D nesta temporada?
+export function userInSerieD() {
+  return ui.myCompId === "serie_d";
 }
 
 // Próximo compromisso do USUÁRIO na rodada atual. Copa antes, liga depois.
 export function findNextUserCommitment(round) {
+  // Série D: a partida do usuário vem do calendário interno (grupo ou mata-mata).
+  if (userInSerieD()) {
+    const e = getUserSerieDMatch(state.serieD, ui.myTeamId);
+    return e ? { isCup: false, isSerieD: true, match: e.match, entry: e } : null;
+  }
   const comp = state.competitions[ui.myCompId];
   if (!comp) return null;
   const cup = state.competitions.copa_brasil;
@@ -1054,5 +1092,7 @@ export function resolveUserCompetition() {
     const c = state.competitions[cid];
     if (c?.teams?.includes(ui.myTeamId)) return cid;
   }
+  // Série D (campo montado após os estaduais)
+  if (isTeamInSerieD(state.serieD, ui.myTeamId)) return "serie_d";
   return null;
 }

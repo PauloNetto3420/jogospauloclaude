@@ -20,6 +20,7 @@ import { createEstaduais, getEstadualMatchesForRound } from "./engine/estadual.j
 import { initManager } from "./engine/manager.js";
 import { assignBoardObjective, computeConfidence } from "./engine/board.js";
 import { seedInitialRanking } from "./engine/ranking.js";
+import { isSerieDDone, SERIE_D_TOTAL_ROUNDS } from "./engine/serie-d.js";
 import { saveGame, listSaves, deleteSave } from "./db.js";
 import { SERIE_A_SEED, SERIE_B_SEED, SERIE_C_SEED, SERIE_D_SEED } from "../data/teams.seed.js";
 import { state, rng, setState, setRng, ui } from "./core/store.js";
@@ -218,12 +219,21 @@ function renderTeamPicker() {
     </div>
   `;
 
+  // Série D: clubes sem divisão nacional. Ao escolher um, você o gerencia na
+  // Série D (vaga garantida no campo daquela temporada). São muitos — mostra
+  // só os mais fortes por reputação para a tela não ficar gigante.
+  const serieDPick = [...SERIE_D_SEED].sort((a, b) => b.reputation - a.reputation).slice(0, 48);
+
   $main.innerHTML = `
     <div class="view-title">Escolha seu Clube</div>
-    <div class="view-sub">60 clubes em 3 divisões disputam simultaneamente. Selecione o seu.</div>
+    <div class="view-sub">60 clubes em A/B/C + a Série D (clubes sem divisão). Selecione o seu.</div>
     ${tierBlock("Série A", SERIE_A_SEED, "var(--accent)")}
     ${tierBlock("Série B", SERIE_B_SEED, "var(--accent-2)")}
     ${tierBlock("Série C", SERIE_C_SEED, "var(--warning)")}
+    <div style="margin:-12px 0 14px;font-size:12px;color:var(--muted)">
+      Abaixo, a <b>Série D</b>: ao escolher, você assume o clube na quarta divisão nacional (entre os 96, garantido). Buscar o acesso à Série C é a meta.
+    </div>
+    ${tierBlock("Série D", serieDPick, "var(--danger, #e5484d)")}
   `;
 
   $main.querySelectorAll(".team-pick").forEach(card => {
@@ -264,8 +274,9 @@ async function startGame(teamId) {
   ui.myTeamId = teamId;
   if (SERIE_A_SEED.some(t => t.id === teamId)) ui.myCompId = "brasileirao_a";
   else if (SERIE_B_SEED.some(t => t.id === teamId)) ui.myCompId = "brasileirao_b";
-  else ui.myCompId = "brasileirao_c_p1"; // Série C começa na 1ª Fase
-  ui.standingsView = ui.myCompId;
+  else if (SERIE_C_SEED.some(t => t.id === teamId)) ui.myCompId = "brasileirao_c_p1";
+  else ui.myCompId = "serie_d"; // clube sem divisão → Série D (garantido no campo)
+  ui.standingsView = ui.myCompId === "serie_d" ? "serie_d" : ui.myCompId;
   const seed = Date.now() & 0xffffffff;
   setRng(createRng(seed));
 
@@ -383,19 +394,23 @@ function renderShell() {
   const my = state.teams[ui.myTeamId];
   // Se a competição atual sumiu (ex.: subcomps da Série C após endSeason),
   // recoloca o usuário na sua nova divisão antes de seguir.
-  if (!state.competitions[ui.myCompId]) {
+  if (!state.competitions[ui.myCompId] && ui.myCompId !== "serie_d") {
     const resolved = resolveUserCompetition();
     if (resolved) { ui.myCompId = resolved; ui.standingsView = ui.myCompId; }
   }
+  const inD = ui.myCompId === "serie_d";
   const comp = state.competitions[ui.myCompId];
-  if (!comp) {
+  if (!inD && !comp) {
     // Ainda nada — não trava a UI, apenas avisa
     console.warn("ui.myCompId inválido e nenhuma competição encontrada para", ui.myTeamId);
     return;
   }
   const isEstadual = state.seasonPhase === "estadual";
-  const round = getCurrentRound(comp);
-  const total = Math.max(...comp.fixtures.map(m => m.round));
+  const sd = state.serieD;
+  const round = inD
+    ? (sd && !isSerieDDone(sd) ? sd.round : null)
+    : getCurrentRound(comp);
+  const total = inD ? SERIE_D_TOTAL_ROUNDS : Math.max(...comp.fixtures.map(m => m.round));
 
   if (isEstadual) {
     const eRound = state.estadualRound || 1;
@@ -786,7 +801,7 @@ async function handleBid(kind, pid) {
     return;
   }
 
-  const round = getCurrentRound(state.competitions[ui.myCompId]) ?? 0;
+  const round = userRound() ?? 0;
   if (kind === "free") {
     const sal = await promptDialog({
       title: `Contratar · ${p.name}`,
@@ -821,4 +836,13 @@ async function handleBid(kind, pid) {
   render();
 }
 
-function log(msg) { state.log.push(`[R${getCurrentRound(state.competitions[ui.myCompId]) ?? "fim"}] ${msg}`); }
+// Rodada atual do usuário, segura para Série D (sem competição em state.competitions).
+function userRound() {
+  if (ui.myCompId === "serie_d") {
+    return (state.serieD && !isSerieDDone(state.serieD)) ? state.serieD.round : null;
+  }
+  const c = state.competitions[ui.myCompId];
+  return c ? getCurrentRound(c) : null;
+}
+
+function log(msg) { state.log.push(`[R${userRound() ?? "fim"}] ${msg}`); }

@@ -170,7 +170,7 @@ function inTopDivisions(state, id) {
 // Monta o campo de 96 por waterfall de prioridade (com dedup e herança de vaga
 // implícita): rebaixados da C → permanência → vagas estaduais por RNF →
 // preenchimento por RNC. Retorna { field, sources, rnf }.
-export function buildSerieDFieldFull(state, prevSerieD, relegatedFromC = [], target = SERIE_D_TEAMS) {
+export function buildSerieDFieldFull(state, prevSerieD, relegatedFromC = [], { target = SERIE_D_TEAMS, mustInclude = null } = {}) {
   const field = [];
   const inField = new Set();
   const sources = { serieC: [], permanencia: [], estadual: [], rnc: [] };
@@ -179,6 +179,9 @@ export function buildSerieDFieldFull(state, prevSerieD, relegatedFromC = [], tar
     inField.add(id); field.push(id); sources[src].push(id); return true;
   };
 
+  // 0. Clube gerenciado pelo usuário sem divisão (escolhido na tela inicial):
+  //    vaga garantida no campo.
+  if (mustInclude) add(mustInclude, "estadual");
   // 1. Rebaixados da Série C (temporada anterior)
   for (const id of relegatedFromC) add(id, "serieC");
   // 2. Permanência por campanha (oitavas do D anterior, menos promovidos)
@@ -406,4 +409,41 @@ export function isSerieDDone(serieD) {
 // Lista de acesso (4) — disponível após as quartas.
 export function getSerieDPromoted(serieD) {
   return serieD.promoted || [];
+}
+
+// ==================== Suporte ao usuário jogável (Fase 3) ====================
+
+// O clube está no campo da Série D?
+export function isTeamInSerieD(serieD, teamId) {
+  if (!serieD) return false;
+  return serieD.groups.some(g => g.teams.includes(teamId));
+}
+
+// Partida pendente do usuário na rodada interna corrente (ou null). Retorna a
+// entry de getSerieDMatchesForRound (com match/kind/compId/tie).
+export function getUserSerieDMatch(serieD, teamId) {
+  if (!serieD || isSerieDDone(serieD)) return null;
+  return getSerieDMatchesForRound(serieD, serieD.round)
+    .find(e => e.match.homeTeamId === teamId || e.match.awayTeamId === teamId) || null;
+}
+
+// O clube ainda tem jogos na Série D? (está vivo no mata-mata ou na fase de
+// grupos). Usado pra decidir quando a "temporada do usuário" acabou.
+export function userHasFutureSerieDMatches(serieD, teamId) {
+  if (!serieD || isSerieDDone(serieD)) return false;
+  // Fase de grupos: enquanto houver rodada de grupo pendente do time.
+  if (serieD.phase === "groups") {
+    const g = serieD.groups.find(x => x.teams.includes(teamId));
+    return g ? g.fixtures.some(m => !m.played && (m.homeTeamId === teamId || m.awayTeamId === teamId)) : false;
+  }
+  // Mata-mata: o time precisa estar vivo em alguma chave da fase atual ou seguinte.
+  const buckets = [serieD.ko.r32, serieD.ko.r16, serieD.ko.quarters, serieD.ko.semis, serieD.ko.final ? [serieD.ko.final] : []];
+  for (const ties of buckets) {
+    for (const t of ties) {
+      if (!t) continue;
+      const inTie = t.teamAId === teamId || t.teamBId === teamId;
+      if (inTie && !t.winnerId) return true;  // confronto em aberto
+    }
+  }
+  return false;
 }

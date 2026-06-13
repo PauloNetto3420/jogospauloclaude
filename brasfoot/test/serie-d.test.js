@@ -11,6 +11,7 @@ import {
   advanceSerieDPhase, applySerieDKnockoutResult, getSerieDMatchesForRound,
   applySerieDMatchResult, isSerieDDone, getSerieDPromoted, nextSerieDField, pickSerieDField,
   computeRNF, getSerieDPermanencia, buildSerieDFieldFull,
+  isTeamInSerieD, getUserSerieDMatch,
   SERIE_D_TEAMS, SERIE_D_GROUPS, SERIE_D_GROUP_ROUNDS, SERIE_D_TOTAL_ROUNDS,
   REGION_BY_UF,
 } from "../src/engine/serie-d.js";
@@ -204,6 +205,28 @@ test("buildSerieDFieldFull: 96 únicos, sem A/B/C, com rebaixados da C e fontes 
   const total = sources.serieC.length + sources.permanencia.length + sources.estadual.length + sources.rnc.length;
   assert.equal(total, 96, "fontes somam 96");
   assert.ok(rnf.length > 0);
+});
+
+test("buildSerieDFieldFull: mustInclude garante a vaga do clube do usuário", () => {
+  const st = makeFullState();
+  const userId = "f150"; // sem divisão, fora de qualquer fonte natural
+  const { field, sources } = buildSerieDFieldFull(st, null, [], { mustInclude: userId });
+  assert.equal(field.length, 96);
+  assert.ok(field.includes(userId), "clube do usuário está no campo");
+  assert.equal(field.filter(id => id === userId).length, 1, "uma vez só");
+});
+
+test("isTeamInSerieD / getUserSerieDMatch: detecta clube e partida do usuário", () => {
+  const { teams, ids } = makeTeams();
+  const sd = createSerieD({ season: 2026, teamIds: ids, teams, rng: createRng(8) });
+  const someId = sd.groups[0].teams[0];
+  assert.ok(isTeamInSerieD(sd, someId));
+  assert.ok(!isTeamInSerieD(sd, "naoexiste"));
+  // Na rodada 1, o clube tem uma partida de grupo pendente.
+  const e = getUserSerieDMatch(sd, someId);
+  assert.ok(e, "tem entry");
+  assert.ok(e.match.homeTeamId === someId || e.match.awayTeamId === someId);
+  assert.equal(e.kind, "group");
 });
 
 test("buildSerieDFieldFull: herança — clube já no campo não consome 2 vagas", () => {
