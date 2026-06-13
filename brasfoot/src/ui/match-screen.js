@@ -9,6 +9,7 @@ import { toast } from "./toast.js";
 import { createMatchSimulator } from "../engine/match.js";
 import { applyMatchResult } from "../engine/season.js";
 import { applyCupLegToState, applyEstadualMatchResult } from "../core/match-apply.js";
+import { applySerieDMatchResult } from "../engine/serie-d.js";
 
 // Velocidades disponíveis durante o jogo (ms por minuto simulado).
 // "skip" pula direto pro final (0ms entre minutos).
@@ -402,6 +403,8 @@ export function playMatchOnScreen(match, sim, onContinue, parallels = []) {
         applyCupLegToState(ps.match, r);
       } else if (ps.estadual) {
         applyEstadualMatchResult(ps.match, r, { ...ps.estadual, compId: ps.compId });
+      } else if (ps.serieD) {
+        applySerieDMatchResult(state.serieD, ps.serieD, r, rng);
       } else {
         applyMatchResult(state, ps.match, r, state.competitions[ps.compId]);
       }

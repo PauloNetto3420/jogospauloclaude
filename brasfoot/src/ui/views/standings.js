@@ -33,6 +33,7 @@ import { getMatogrossenseStandings } from "../../engine/matogrossense.js";
 import { getSulmatogrossenseStandings } from "../../engine/sulmatogrossense.js";
 import { getCandangoStandings } from "../../engine/candango.js";
 import { getCapixabaStandings } from "../../engine/capixaba.js";
+import { sortSerieDGroup, getSerieDPromoted } from "../../engine/serie-d.js";
 
 export function renderStandings() {
   // Durante a pré-temporada, a aba mostra os estaduais
@@ -42,6 +43,10 @@ export function renderStandings() {
   // Branch especial pra Série C (multi-fase)
   if ((ui.standingsView || "").startsWith("brasileirao_c")) {
     return renderStandingsSerieC();
+  }
+  // Branch especial pra Série D (grupos + mata-mata, em 2º plano)
+  if (ui.standingsView === "serie_d") {
+    return renderStandingsSerieD();
   }
   const comp = state.competitions[ui.standingsView];
   const sorted = sortStandings(comp, state.teams);
@@ -59,6 +64,7 @@ export function renderStandings() {
         <button class="btn-toggle ${ui.standingsView === "brasileirao_a" ? "on" : ""}" data-comp="brasileirao_a">Série A</button>
         <button class="btn-toggle ${ui.standingsView === "brasileirao_b" ? "on" : ""}" data-comp="brasileirao_b">Série B</button>
         <button class="btn-toggle ${(ui.standingsView || "").startsWith("brasileirao_c") ? "on" : ""}" data-comp="brasileirao_c_p1">Série C</button>
+        ${state.serieD ? `<button class="btn-toggle ${ui.standingsView === "serie_d" ? "on" : ""}" data-comp="serie_d">Série D</button>` : ""}
       </div>
     </div>
 
@@ -1626,6 +1632,111 @@ function renderSulmatogrossense(e, isMine) {
   return header + tableHtml + koHtml;
 }
 
+// Série D — 24 grupos (mini-tabelas) + chaveamento nacional. Simulada em 2º plano.
+function renderStandingsSerieD() {
+  const sd = state.serieD;
+  if (!sd) return `<div class="view-title">Série D</div><div class="card"><p style="color:var(--muted)">Indisponível.</p></div>`;
+  const phaseLabel = {
+    groups: "Fase de grupos", r32: "16-avos de final", r16: "Oitavas de final",
+    quarters: "Quartas de final (acesso)", semis: "Semifinais", final: "Final", done: "Encerrada",
+  }[sd.phase] || "—";
+
+  const buttons = `
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn-toggle" data-comp="brasileirao_a">Série A</button>
+      <button class="btn-toggle" data-comp="brasileirao_b">Série B</button>
+      <button class="btn-toggle" data-comp="brasileirao_c_p1">Série C</button>
+      <button class="btn-toggle on" data-comp="serie_d">Série D</button>
+    </div>`;
+
+  const promoted = getSerieDPromoted(sd);
+  const banner = (promoted.length || sd.champion) ? `
+    <div class="card" style="margin-bottom:12px">
+      ${sd.champion ? `<div class="bracket-champion">🏆 Campeão da Série D: ${state.teams[sd.champion]?.name}</div>` : ""}
+      ${promoted.length ? `<div style="margin-top:6px;font-size:13px">⬆️ <b>Acesso à Série C:</b> ${promoted.map(id => `${teamLogo(id, 16)} ${state.teams[id]?.shortName}`).join(" · ")}</div>` : ""}
+    </div>` : "";
+
+  const q = sd.qualification;
+  const chip = (txt) => `<span style="padding:4px 10px;border-radius:14px;background:var(--bg-2);border:1px solid var(--border);font-size:12px">${txt}</span>`;
+  const qualHtml = q ? `
+    <div class="card" style="margin-bottom:12px">
+      <h3>Como os 96 se classificaram</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px">
+        ${chip(`⬇️ <b>${q.sources.serieC.length}</b> rebaixados da Série C`)}
+        ${chip(`🔁 <b>${q.sources.permanencia.length}</b> permanência (oitavas)`)}
+        ${chip(`🏆 <b>${q.sources.estadual.length}</b> vagas estaduais (RNF)`)}
+        ${chip(`📊 <b>${q.sources.rnc.length}</b> ranking (RNC)`)}
+      </div>
+      <details style="margin-top:8px">
+        <summary style="cursor:pointer;font-size:12px;color:var(--muted)">Ranking Nacional das Federações (RNF) · vagas por estado</summary>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:5px;margin-top:8px;font-size:11px">
+          ${q.rnf.map(f => `<span style="padding:3px 7px;border:1px solid var(--border);border-radius:6px">${f.rank}. <b>${f.uf}</b> · ${f.quota} vagas</span>`).join("")}
+        </div>
+      </details>
+    </div>` : "";
+
+  const groupsHtml = `
+    <div class="card">
+      <h3>Fase de grupos <span style="color:var(--muted);font-weight:400;font-size:12px">· 2 melhores de cada avançam (24 líderes + 8 melhores vices = 32)</span></h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin-top:8px">
+        ${sd.groups.map((g, i) => renderSerieDGroupMini(g, i)).join("")}
+      </div>
+    </div>`;
+
+  const ko = sd.ko;
+  const koCol = (title, ties) => `
+    <div class="bracket-col">
+      <div class="bracket-col-title">${title}</div>
+      <div class="bracket-col-body">${ties.length ? ties.map(t => renderPaulistaTie(t)).join("") : `<div class="bracket-tie pending">—</div>`}</div>
+    </div>`;
+  const koHtml = ko.r32?.length ? `
+    <div class="card" style="margin-top:12px">
+      <h3>Mata-mata nacional <span style="color:var(--muted);font-weight:400;font-size:12px">· ida/volta · vencedores das quartas SOBEM à Série C</span></h3>
+      <div class="bracket" style="grid-template-columns:repeat(5,minmax(120px,1fr));overflow-x:auto;gap:8px">
+        ${koCol("16-avos", ko.r32)}
+        ${koCol("Oitavas", ko.r16)}
+        ${koCol("Quartas (acesso)", ko.quarters)}
+        ${koCol("Semis", ko.semis)}
+        ${koCol("Final", ko.final ? [ko.final] : [])}
+      </div>
+    </div>` : "";
+
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px">
+      <div>
+        <div class="view-title" style="margin-bottom:0">Brasileirão Série D ${sd.season}</div>
+        <div class="view-sub" style="margin-bottom:0">${phaseLabel} · 96 clubes · 24 grupos · simulada em 2º plano</div>
+      </div>
+      ${buttons}
+    </div>
+    ${banner}
+    ${qualHtml}
+    ${groupsHtml}
+    ${koHtml}
+  `;
+}
+
+function renderSerieDGroupMini(group, idx) {
+  const sorted = sortSerieDGroup(group, state.teams);
+  return `
+    <div style="border:1px solid var(--border);border-radius:8px;padding:6px 8px">
+      <div style="font-weight:600;font-size:12px;margin-bottom:4px">Grupo ${idx + 1}</div>
+      <table style="width:100%;font-size:11px">
+        <tbody>
+          ${sorted.map((s, i) => {
+            const sg = s.goalsFor - s.goalsAgainst;
+            return `<tr class="${s.teamId === ui.myTeamId ? "highlight" : ""}">
+              <td style="width:14px;color:${i < 2 ? "var(--accent)" : "var(--muted)"};font-weight:${i < 2 ? "700" : "400"}">${i + 1}</td>
+              <td>${teamLogo(s.teamId, 14)} <span title="${state.teams[s.teamId]?.name}">${state.teams[s.teamId]?.shortName ?? "?"}</span></td>
+              <td style="text-align:right"><b>${s.points}</b></td>
+              <td style="text-align:right;color:var(--muted)">${sg > 0 ? "+" : ""}${sg}</td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>`;
+}
+
 function renderStandingsSerieC() {
   const meta = state.serieCMeta || { currentPhase: "phase1" };
   const p1 = state.competitions.brasileirao_c_p1;
@@ -1638,6 +1749,7 @@ function renderStandingsSerieC() {
       <button class="btn-toggle ${ui.standingsView === "brasileirao_a" ? "on" : ""}" data-comp="brasileirao_a">Série A</button>
       <button class="btn-toggle ${ui.standingsView === "brasileirao_b" ? "on" : ""}" data-comp="brasileirao_b">Série B</button>
       <button class="btn-toggle on" data-comp="brasileirao_c_p1">Série C</button>
+      ${state.serieD ? `<button class="btn-toggle" data-comp="serie_d">Série D</button>` : ""}
     </div>
   `;
 

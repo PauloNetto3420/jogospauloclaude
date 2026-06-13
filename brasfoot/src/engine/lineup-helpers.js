@@ -4,6 +4,7 @@
 import { state, ui } from "../core/store.js";
 import { FORMATIONS } from "./match.js";
 import { getEstadualMatchesForRound, estadualTotalRounds } from "./estadual.js";
+import { getUserSerieDMatch } from "./serie-d.js";
 
 // Agrupa posições do CBF nos 4 grupos clássicos para validar formação
 export const POS_GROUP = {
@@ -93,6 +94,10 @@ export function findNextMatch() {
       if (mm) return mm.match;
     }
     return null;
+  }
+  if (ui.myCompId === "serie_d") {
+    const e = getUserSerieDMatch(state.serieD, ui.myTeamId);
+    return e ? e.match : null;
   }
   const comp = state.competitions[ui.myCompId];
   if (!comp) return null;

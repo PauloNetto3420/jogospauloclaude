@@ -1,6 +1,6 @@
 // Série C — formato CBF atual:
 //   1ª Fase: pontos corridos, turno único (19 rodadas), 20 times.
-//            Top 8 avança; 2 últimos rebaixados (à Série D, ainda inexistente).
+//            Top 8 avança; 4 últimos rebaixados para a Série D.
 //   2ª Fase: 2 quadrangulares (Grupo A = 1º,3º,4º,7º · Grupo B = 2º,5º,6º,8º)
 //            ida e volta (6 rodadas). Top 2 de cada grupo sobem para Série B.
 //   Final:   Líder do Grupo A × Líder do Grupo B, ida e volta. Melhor agregado leva.
@@ -36,7 +36,7 @@ export function createSerieCPhase1({ season, teamIds }) {
     teamIds,
     legs: 1,                     // turno único
     roundOffset: 0,              // começa na rodada 1
-    rules: { relegation: 2, format: "league_single" },
+    rules: { relegation: 4, format: "league_single" },
   });
 }
 
@@ -45,7 +45,7 @@ export function createSerieCPhase1({ season, teamIds }) {
 export function createSerieCGroups({ season, phase1 }) {
   const sorted = sortStandings(phase1.standings);
   const top8 = sorted.slice(0, 8).map(s => s.teamId);
-  const relegated = sorted.slice(-2).map(s => s.teamId);
+  const relegated = sorted.slice(-4).map(s => s.teamId);   // 4 últimos → Série D
 
   // Grupo A: 1º, 3º, 4º, 7º
   const groupATeams = [top8[0], top8[2], top8[3], top8[6]];

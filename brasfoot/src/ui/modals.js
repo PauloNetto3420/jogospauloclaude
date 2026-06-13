@@ -817,6 +817,7 @@ export function showSeasonRecapModal(info, onContinue) {
         ${champRow("Série A", info.champA)}
         ${champRow("Série B", info.champB)}
         ${info.champC ? champRow("Série C", info.champC) : ""}
+        ${info.champD ? champRow("Série D", info.champD) : ""}
 
         <div style="height:1px;background:var(--border);margin:18px 0"></div>
 
@@ -824,6 +825,8 @@ export function showSeasonRecapModal(info, onContinue) {
         ${flowBlock("Série A → B · rebaixados", "⬇️", info.relegated, "var(--danger)")}
         ${flowBlock("Série C → B · promovidos", "⬆️", info.promotedFromC, "var(--accent)")}
         ${flowBlock("Série B → C · rebaixados", "⬇️", info.relegatedToC, "var(--danger)")}
+        ${(info.promotedFromD && info.promotedFromD.length) ? flowBlock("Série D → C · acessos", "⬆️", info.promotedFromD, "var(--accent)") : ""}
+        ${(info.relegatedToD && info.relegatedToD.length) ? flowBlock("Série C → D · rebaixados", "⬇️", info.relegatedToD, "var(--danger)") : ""}
 
         <div style="display:flex;gap:16px;justify-content:center;margin-top:8px;padding-top:14px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)">
           <span>👋 ${info.retiredCount} aposentadorias</span>

@@ -11,6 +11,7 @@
 import { sortStandings } from "./season.js";
 import { createCompetition } from "../models/competition.js";
 import { createSerieCPhase1 } from "./serie-c.js";
+import { getSerieDPromoted } from "./serie-d.js";
 import { evolvePlayer, generateFreeAgentBatch, rollUpPlayerSeason } from "../models/player.js";
 import { recalcExpenses } from "../models/team.js";
 import { processSeasonEndAcademy, generateSeasonalYouth } from "./academy.js";
@@ -86,6 +87,16 @@ export function endSeason(state, rng) {
     report.relegatedToC = relegatedToC;
     report.promotedFromC = promotedFromC;
   }
+
+  // 2.4 Série D ↔ Série C (acesso e rebaixamento). Só efetiva o swap se a
+  //     Série D terminou (4 acessos definidos), mantendo a Série C em 20 clubes.
+  const serieD = state.serieD;
+  const serieDDone = serieD && serieD.phase === "done";
+  const relegatedToD = serieDDone ? (state.serieCMeta?.relegated || []) : []; // C → D
+  const promotedFromD = serieDDone ? getSerieDPromoted(serieD) : [];          // D → C
+  report.relegatedToD = relegatedToD;
+  report.promotedFromD = promotedFromD;
+  report.serieDChampion = serieD?.champion || null;
 
   // 2.5 Snapshot do histórico ANTES de recriar competições (senão perde
   //     standings finais e artilheiros da temporada que terminou).
@@ -179,11 +190,14 @@ export function endSeason(state, rng) {
       rules: { promotion: 4, promotedTo: "brasileirao_a", relegation: 4, relegatedTo: "brasileirao_c" },
     });
 
-    // Nova Série C: tira promovidos (foram pra B), entra rebaixados da B.
-    // (Os 2 últimos da Fase 1 da C "iriam" para a Série D, mas sem D ainda → ficam em C.)
+    // Nova Série C: tira promovidos (foram pra B) e rebaixados (foram pra D),
+    // entra rebaixados da B e os 4 promovidos da Série D.
     if (compCp1) {
-      const stayC = compCp1.teams.filter(t => !promotedFromC.includes(t));
-      const newC = [...stayC, ...relegatedToC];
+      const doD = relegatedToD.length === 4 && promotedFromD.length === 4;
+      const stayC = compCp1.teams.filter(t =>
+        !promotedFromC.includes(t) && (!doD || !relegatedToD.includes(t))
+      );
+      const newC = [...stayC, ...relegatedToC, ...(doD ? promotedFromD : [])];
       state.competitions.brasileirao_c_p1 = createSerieCPhase1({
         season: newSeason,
         teamIds: newC,
@@ -199,6 +213,12 @@ export function endSeason(state, rng) {
         promoted: [],
         relegated: [],
       };
+
+      // A Série D da próxima temporada é montada na pré-temporada seguinte
+      // (após os estaduais), pelo sistema de vagas. Aqui só guardamos os
+      // rebaixados da C, que entram como vagas garantidas. O state.serieD da
+      // temporada que terminou é mantido até lá (fonte da permanência).
+      if (doD) state.serieDPendingRelegated = relegatedToD;
     }
   }
 

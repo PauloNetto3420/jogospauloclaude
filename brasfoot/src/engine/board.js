@@ -8,6 +8,7 @@
 // demissão (em manager.js).
 
 import { sortStandings } from "./season.js";
+import { isTeamInSerieD, reachedSerieDKnockout } from "./serie-d.js";
 
 // Competições nacionais onde um clube pode estar (na ordem de divisão).
 const NATIONAL_COMPS = ["brasileirao_a", "brasileirao_b", "brasileirao_c_p1"];
@@ -22,6 +23,8 @@ export const OBJECTIVE_LABELS = {
   survival_b:  "Permanência na Série B",
   promotion_c: "Acesso à Série B",
   midtable_c:  "Campanha digna na Série C",
+  promotion_d: "Acesso à Série C",
+  knockout_d:  "Classificar ao mata-mata",
 };
 
 // Descobre a competição nacional do clube (A, B ou C-fase1).
@@ -50,6 +53,19 @@ export function assignBoardObjective(state, teamId) {
   if (!team) return null;
   const compId = findNationalCompId(state, teamId);
   const season = state.season;
+
+  // Série D: meta calibrada pela reputação dentro do campo dos 96.
+  if (!compId && isTeamInSerieD(state.serieD, teamId)) {
+    const field = state.serieD.groups.flatMap(g => g.teams);
+    const reps = field
+      .map(id => ({ id, rep: state.teams[id]?.reputation ?? 40 }))
+      .sort((a, b) => b.rep - a.rep);
+    const rank = reps.findIndex(r => r.id === teamId);
+    const pct = reps.length > 1 ? rank / (reps.length - 1) : 0;
+    const kind = pct <= 0.45 ? "promotion_d" : "knockout_d";
+    team.board = { objective: { kind, label: OBJECTIVE_LABELS[kind], targetPos: null, compId: "serie_d", season }, confidence: 60 };
+    return team.board;
+  }
 
   // Sem competição nacional encontrada (ex.: clube só de estadual): meta neutra.
   if (!compId) {
@@ -116,6 +132,19 @@ export function evaluateObjective(state, teamId, report) {
   const board = state.teams[teamId]?.board;
   if (!board?.objective) return null;
   const obj = board.objective;
+
+  // Série D: avaliada pelo acesso (4 que subiram) e pela classificação ao
+  // mata-mata, lidos de state.serieD (ainda intacto no fim da temporada).
+  if (obj.compId === "serie_d") {
+    const sd = state.serieD;
+    const accessed = (sd?.promoted || []).includes(teamId);
+    const inKO = reachedSerieDKnockout(sd, teamId);
+    const champion = sd?.champion === teamId;
+    const met = obj.kind === "promotion_d" ? accessed : inKO;
+    const exceeded = obj.kind === "promotion_d" ? champion : accessed;
+    const failedBadly = obj.kind === "promotion_d" ? !inKO : false;
+    return { met, exceeded, failedBadly, champion, finalPos: null, total: null, label: obj.label, kind: obj.kind };
+  }
 
   // Série C (acesso via quadrangular): avaliada pelo serieCMeta.
   if (obj.compId === "brasileirao_c_p1" || obj.kind === "promotion_c" || obj.kind === "midtable_c") {

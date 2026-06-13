@@ -36,7 +36,7 @@ test("createSerieCGroups: 8 melhores viram 2 grupos de 4", () => {
   const { groupA, groupB, top8, relegated } = createSerieCGroups({ season: 2026, phase1: p1 });
 
   assert.equal(top8.length, 8, "8 classificados");
-  assert.equal(relegated.length, 2, "2 rebaixados (últimos)");
+  assert.equal(relegated.length, 4, "4 rebaixados à Série D (últimos)");
   assert.equal(groupA.teams.length, 4, "grupo A com 4");
   assert.equal(groupB.teams.length, 4, "grupo B com 4");
 

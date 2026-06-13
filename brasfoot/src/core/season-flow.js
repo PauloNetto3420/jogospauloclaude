@@ -26,6 +26,11 @@ import {
   SERIE_C_STAGE_IDS,
 } from "../engine/serie-c.js";
 import {
+  getSerieDMatchesForRound, applySerieDMatchResult, advanceSerieDPhase,
+  isSerieDDone, getSerieDPromoted, createSerieD, buildSerieDFieldFull,
+  getUserSerieDMatch, isTeamInSerieD, SERIE_D_TOTAL_ROUNDS,
+} from "../engine/serie-d.js";
+import {
   getEstadualMatchesForRound, advanceEstadualPhase, estadualTotalRounds,
   createEstaduais,
 } from "../engine/estadual.js";
@@ -179,6 +184,8 @@ function finalizeEstadualRound(round) {
 }
 
 function finishEstadualPhase() {
+  // Idempotente: se já transicionou pro nacional, não repremia nem remonta a D.
+  if (state.seasonPhase === "national") return;
   // Garante que todos os estaduais terminaram (simula resto se faltou)
   const maxRound = getMaxEstadualRound();
   for (let r = (state.estadualRound || 1); r <= maxRound; r++) {
@@ -207,9 +214,45 @@ function finishEstadualPhase() {
     log(`🏆 ${champ.shortName} campeão do ${e.name}!`);
   }
 
+  // Monta a Série D da temporada pelo sistema de vagas (após os estaduais):
+  // rebaixados da C (da temporada anterior), permanência por campanha do D
+  // anterior, vagas estaduais por RNF e preenchimento por RNC.
+  try {
+    const relegatedFromC = state.serieDPendingRelegated || [];
+    const prevD = state.serieD || null;   // D da temporada anterior (fonte da permanência)
+    // Se o usuário dirige um clube sem divisão (escolhido na tela inicial ou
+    // caído da C), garante a vaga dele no campo.
+    const userTeamId = ui.myTeamId;
+    const userDivisionless = userInSerieD() ||
+      (state.serieDPendingRelegated || []).includes(userTeamId);
+    const mustInclude = userDivisionless ? userTeamId : null;
+    const { field, sources, rnf } = buildSerieDFieldFull(state, prevD, relegatedFromC, { mustInclude });
+    state.serieD = createSerieD({
+      season: state.season, teamIds: field, teams: state.teams, rng,
+      relegatedFromC, qualification: { sources, rnf },
+    });
+    state.serieDPendingRelegated = [];
+    log(`Série D ${state.season} montada: ${field.length} clubes (${sources.serieC.length} da C, ${sources.permanencia.length} permanência, ${sources.estadual.length} estaduais, ${sources.rnc.length} ranking).`);
+  } catch (e) { console.error("Falha ao montar Série D:", e); }
+
   // Transição pra temporada nacional
   state.seasonPhase = "national";
   state.estadualRound = 1;
+
+  // Resolve a competição nacional do usuário (pode ter caído pra Série D ou
+  // subido dela). resolveUserCompetition já cobre A/B/C e a Série D.
+  const cid = resolveUserCompetition();
+  if (cid) { ui.myCompId = cid; ui.standingsView = cid; }
+
+  // Meta da diretoria da Série D só dá pra calibrar depois que o campo é
+  // montado. Reatribui (e anuncia, se mudou) para o usuário agora na Série D.
+  if (state.managedTeamId && ui.myCompId === "serie_d") {
+    const before = state.teams[state.managedTeamId]?.board?.objective?.kind;
+    assignBoardObjective(state, state.managedTeamId);
+    const after = state.teams[state.managedTeamId]?.board?.objective?.kind;
+    if (after !== before) announceBoardObjective(state);
+  }
+
   log(`Pré-temporada encerrada. Começa o Brasileirão ${state.season}!`);
 }
 
@@ -229,8 +272,11 @@ export function playRound() {
     return;
   }
 
-  const comp = state.competitions[ui.myCompId];
-  const round = getCurrentRound(comp);
+  // Rodada do usuário: na Série D vem do calendário interno (state.serieD);
+  // nas demais, da competição em state.competitions.
+  const round = userInSerieD()
+    ? (state.serieD && !isSerieDDone(state.serieD) ? state.serieD.round : null)
+    : getCurrentRound(state.competitions[ui.myCompId]);
   if (round == null) return;
 
   const cup = state.competitions.copa_brasil;
@@ -275,6 +321,9 @@ function proceedToMatch(next, round) {
     if (next.isCup) {
       applyCupLegToState(next.match, result);
       log(`🏆 Copa: ${state.teams[next.match.homeTeamId].shortName} ${result.score.home}×${result.score.away} ${state.teams[next.match.awayTeamId].shortName}`);
+    } else if (next.isSerieD) {
+      applySerieDMatchResult(state.serieD, next.entry, result, rng);
+      log(`Série D: ${state.teams[next.match.homeTeamId].shortName} ${result.score.home}×${result.score.away} ${state.teams[next.match.awayTeamId].shortName}`);
     } else {
       applyMatchResult(state, next.match, result, comp);
     }
@@ -329,11 +378,30 @@ function collectParallelMatches(round, excludeMatch) {
       }
     }
   }
+  // Série D: quando o usuário JOGA a Série D, as outras partidas da rodada
+  // interna tickam como paralelos (a do usuário é excludeMatch).
+  if (userInSerieD() && state.serieD && !isSerieDDone(state.serieD)) {
+    for (const e of getSerieDMatchesForRound(state.serieD, state.serieD.round)) {
+      if (e.match !== excludeMatch && !e.match.played) {
+        list.push({ match: e.match, isCup: false, serieD: e });
+      }
+    }
+  }
   return list;
+}
+
+// O usuário está gerenciando um clube da Série D nesta temporada?
+export function userInSerieD() {
+  return ui.myCompId === "serie_d";
 }
 
 // Próximo compromisso do USUÁRIO na rodada atual. Copa antes, liga depois.
 export function findNextUserCommitment(round) {
+  // Série D: a partida do usuário vem do calendário interno (grupo ou mata-mata).
+  if (userInSerieD()) {
+    const e = getUserSerieDMatch(state.serieD, ui.myTeamId);
+    return e ? { isCup: false, isSerieD: true, match: e.match, entry: e } : null;
+  }
   const comp = state.competitions[ui.myCompId];
   if (!comp) return null;
   const cup = state.competitions.copa_brasil;
@@ -392,6 +460,9 @@ async function closeWeek(round) {
 
   // Transições de fase da Série C
   advanceSerieCIfNeeded();
+
+  // Série D roda em 2º plano (1 rodada interna por rodada nacional)
+  advanceSerieDWeek();
 
   // Premiação por fase da Copa — paga quem ENTROU em cada fase, idempotente
   const cup = state.competitions.copa_brasil;
@@ -493,6 +564,7 @@ async function closeWeek(round) {
 
   // Virada de temporada
   if (isSeasonOver(state) && (!cup || cup.champion || !cup.phases.final.ties.length)) {
+    finishSerieD();              // garante acesso/campeão antes do endSeason
     const report = endSeason(state, rng);
     generateSeasonEndNews(state, report);
     state.competitions.copa_brasil = createCupCompetition({
@@ -603,6 +675,69 @@ function toResultShape(m) {
   };
 }
 
+// =====================================================================
+// Série D — simulação em 2º plano (1 rodada interna por rodada nacional)
+// =====================================================================
+
+// Joga a rodada interna corrente da Série D (grupos ou mata-mata), avança a
+// fase e emite manchetes nos marcos (acesso definido, campeão). Idempotente:
+// não faz nada se a Série D já terminou.
+function advanceSerieDWeek() {
+  const sd = state.serieD;
+  if (!sd || isSerieDDone(sd)) return;
+
+  for (const entry of getSerieDMatchesForRound(sd, sd.round)) {
+    const r = simulateMatch({
+      homeTeam: state.teams[entry.match.homeTeamId],
+      awayTeam: state.teams[entry.match.awayTeamId],
+      playersById: state.players, rng,
+    });
+    applySerieDMatchResult(sd, entry, r, rng);
+  }
+  advanceSerieDPhase(sd, state.teams, rng);
+
+  // Marco 1: acesso definido (4 sobem após as quartas)
+  if (sd.promoted?.length === 4 && !sd._accessLogged) {
+    sd._accessLogged = true;
+    const names = sd.promoted.map(id => state.teams[id]?.shortName).filter(Boolean).join(", ");
+    log(`⬆️ Série D: acesso à Série C garantido por ${names}.`);
+    state.inbox = state.inbox || [];
+    state.inbox.push({
+      id: `n_serie_d_access_${sd.season}`,
+      date: state.currentDate, type: "season", priority: "normal",
+      subject: `⬆️ Série D ${sd.season}: definidos os 4 acessos à Série C`,
+      body: `Garantiram vaga na Série C ${sd.season + 1}: ${sd.promoted.map(id => state.teams[id]?.name).filter(Boolean).join(", ")}.`,
+      read: false,
+    });
+  }
+
+  // Marco 2: campeão nacional da Série D
+  if (sd.champion && !sd._champLogged) {
+    sd._champLogged = true;
+    const champ = state.teams[sd.champion];
+    if (champ) {
+      champ.trophies.push({ competitionId: "brasileirao_d", season: sd.season });
+      champ.finances.balance += 2_000_000;
+      log(`🏆 ${champ.shortName} é CAMPEÃO da Série D ${sd.season}!`);
+      state.inbox = state.inbox || [];
+      state.inbox.push({
+        id: `n_serie_d_champ_${sd.season}`,
+        date: state.currentDate, type: "season", priority: "normal",
+        subject: `🏆 ${champ.name} conquista a Série D ${sd.season}`,
+        body: `${champ.name} é o campeão nacional da Série D e sobe para a Série C ${sd.season + 1}. Prêmio: R$ 2.000.000.`,
+        read: false, teamFocus: sd.champion,
+      });
+    }
+  }
+}
+
+// Força o término da Série D (usado na virada de temporada / resolução forçada).
+function finishSerieD() {
+  const sd = state.serieD;
+  if (!sd) return;
+  for (let safety = 0; safety < 40 && !isSerieDDone(sd); safety++) advanceSerieDWeek();
+}
+
 // Roda quando o usuário não tem partida na rodada — simula tudo e fecha.
 async function finalizeRound(round) {
   const allResults = [];
@@ -666,6 +801,9 @@ async function finalizeRound(round) {
   const aiMoves = runAITransfers(state, rng, { excludeTeamId: ui.myTeamId });
   for (const m of aiMoves) log(`🔁 ${m.message}`);
 
+  // 4.5 Série D roda em 2º plano
+  advanceSerieDWeek();
+
   // 5. Manchetes
   generateNewsForRound(state, round, allResults, ui.myTeamId);
 
@@ -673,6 +811,7 @@ async function finalizeRound(round) {
 
   // 6. Virada de temporada
   if (isSeasonOver(state) && (!cup || cup.champion || !cup.phases.final.ties.length)) {
+    finishSerieD();              // garante acesso/campeão antes do endSeason
     const report = endSeason(state, rng);
     generateSeasonEndNews(state, report);
     state.competitions.copa_brasil = createCupCompetition({
@@ -750,6 +889,9 @@ export async function forceResolveSeason() {
     advanceSerieCIfNeeded();
   }
 
+  // 2.5 Garante a Série D concluída (acesso + campeão) antes do endSeason
+  finishSerieD();
+
   // 3. Dispara endSeason e cria nova copa
   const report = endSeason(state, rng);
   generateSeasonEndNews(state, report);
@@ -815,10 +957,13 @@ function showSeasonRecap(report) {
       champA: report.champions.brasileirao_a,
       champB: report.champions.brasileirao_b,
       champC: champCId || null,
+      champD: report.serieDChampion || null,
       promoted: report.promoted || [],
       relegated: report.relegated || [],
       promotedFromC: report.promotedFromC || [],
       relegatedToC: report.relegatedToC || [],
+      promotedFromD: report.promotedFromD || [],
+      relegatedToD: report.relegatedToD || [],
       retiredCount: report.retired.length,
       freeAgentsCount: report.freeAgents.length,
     }, () => handleBoardTransition(report));
@@ -956,5 +1101,7 @@ export function resolveUserCompetition() {
     const c = state.competitions[cid];
     if (c?.teams?.includes(ui.myTeamId)) return cid;
   }
+  // Série D (campo montado após os estaduais)
+  if (isTeamInSerieD(state.serieD, ui.myTeamId)) return "serie_d";
   return null;
 }
