@@ -1,76 +1,136 @@
-// Copa do Brasil — formato mata-mata com 6 fases.
+// Copa do Brasil — 126 clubes, mata-mata em 8 fases.
 //
-// Estrutura da competição:
-//   - 4 cabeças (top 4 da última Série A — Libertadores) entram nas Oitavas.
-//   - 12 "intermediários" (rep 5º-16º) entram na 2ª Fase.
-//   - 24 restantes começam na 1ª Fase.
+// Vagas (126): 20 da Série A + 2 campeões nacionais (Série C e D do ano
+//   anterior) + 104 via estaduais, distribuídas por cota conforme o Ranking
+//   Nacional das Federações (RNF) e preenchidas pelo RNC.
 //
-// Fases:
-//   1ª Fase   (24 → 12)  jogo único, menor reputação manda
-//   2ª Fase   (24 → 12)  jogo único, menor reputação manda
-//   Oitavas   (16 → 8)   ida e volta, melhor campanha joga volta em casa
-//   Quartas   (8 → 4)    ida e volta
-//   Semifinal (4 → 2)    ida e volta
-//   Final     (2 → 1)    ida e volta
+// Fases (bracket que fecha com 126):
+//   1ª Fase  (40 → 20)   jogo único, pior ranqueado manda
+//   2ª Fase  (84 → 42)   jogo único, pior ranqueado manda   [+64 estaduais]
+//   3ª Fase  (64 → 32)   jogo único                          [+22 seeded: A + campeões]
+//   4ª Fase  (32 → 16)   jogo único
+//   Oitavas  (16 → 8)    ida e volta
+//   Quartas  (8 → 4)     ida e volta
+//   Semifinal(4 → 2)     ida e volta
+//   Final    (2 → 1)     jogo único
 //
-// Sorteio: aleatório até as Oitavas. A partir das Quartas, segue chaveamento
-// fixado (vencedor tie 1 enfrenta vencedor tie 2, etc.).
+// Os 22 "seeded" (Série A + 2 campeões) têm bye até a 3ª fase. Sorteio
+// aleatório até as oitavas; chaveamento fixo das quartas em diante.
 
-const PHASE_ORDER = ["fase1", "fase2", "fase3", "oitavas", "quartas", "semi", "final"];
+import { computeRNF, getRankedClubsOutsideTopDivisions } from "./ranking.js";
+
+const PHASE_ORDER = ["f1", "f2", "f3", "f4", "oitavas", "quartas", "semi", "final"];
 
 const PHASE_META = {
-  fase1:    { name: "1ª Fase",         legs: 1, slotsIn: 32, slotsOut: 16, prize:   200_000 },
-  fase2:    { name: "2ª Fase",         legs: 1, slotsIn: 32, slotsOut: 16, prize:   400_000 },
-  fase3:    { name: "3ª Fase",         legs: 1, slotsIn: 24, slotsOut: 12, prize:   800_000 },
-  oitavas:  { name: "Oitavas",         legs: 2, slotsIn: 16, slotsOut: 8,  prize: 2_000_000 },
-  quartas:  { name: "Quartas",         legs: 2, slotsIn: 8,  slotsOut: 4,  prize: 3_000_000 },
-  semi:     { name: "Semifinal",       legs: 2, slotsIn: 4,  slotsOut: 2,  prize: 6_000_000 },
-  final:    { name: "Final",           legs: 2, slotsIn: 2,  slotsOut: 1,  prize: 12_000_000 },
+  f1:       { name: "1ª Fase",   legs: 1, slotsIn: 40, prize:    400_000 },
+  f2:       { name: "2ª Fase",   legs: 1, slotsIn: 84, prize:    830_000 },
+  f3:       { name: "3ª Fase",   legs: 1, slotsIn: 64, prize:    950_000 },
+  f4:       { name: "4ª Fase",   legs: 1, slotsIn: 32, prize:  1_500_000 },
+  oitavas:  { name: "Oitavas",   legs: 2, slotsIn: 16, prize:  3_000_000 },
+  quartas:  { name: "Quartas",   legs: 2, slotsIn:  8, prize:  4_000_000 },
+  semi:     { name: "Semifinal", legs: 2, slotsIn:  4, prize:  9_000_000 },
+  final:    { name: "Final",     legs: 1, slotsIn:  2, prize: 34_000_000 }, // vice; ambos finalistas recebem
 };
-export const CHAMPION_BONUS = 25_000_000;
+export const CHAMPION_BONUS = 44_000_000; // campeão total = 34M (final) + 44M = 78M
+
+// Tamanhos do campo
+const COPA_SEEDED = 22;       // 20 Série A + 2 campeões (entram na 3ª fase)
+const COPA_ESTADUAIS = 104;   // 40 começam na 1ª, 64 entram na 2ª
+const COPA_F1 = 40;
+
+// Cota base de vagas estaduais por posição no RNF; o restante até 104 é
+// preenchido pelos melhores clubes elegíveis no RNC.
+function copaCota(rank) {
+  if (rank <= 2) return 6;
+  if (rank <= 4) return 5;
+  if (rank === 5) return 4;
+  if (rank <= 10) return 3;
+  if (rank <= 16) return 2;
+  return 1;
+}
 
 // Em quais rodadas da liga cada fase é jogada (ida, volta)
 const DEFAULT_SCHEDULE = {
-  fase1:   [3],
-  fase2:   [6],
-  fase3:   [10],
+  f1:      [2],
+  f2:      [5],
+  f3:      [8],
+  f4:      [11],
   oitavas: [14, 17],
   quartas: [20, 23],
-  semi:    [27, 30],
-  final:   [33, 36],
+  semi:    [26, 29],
+  final:   [33],
 };
+
+// ---------------------- Montagem do campo (vagas) ----------------------
+
+// Monta as 126 vagas: { serieA(20), champions, seeded(22), estaduais(104) }.
+export function buildCopaField(state, { serieCChampion = null, serieDChampion = null } = {}) {
+  const used = new Set();
+  const serieA = (state.competitions.brasileirao_a?.teams || []).slice(0, 20);
+  serieA.forEach(id => used.add(id));
+
+  const ranked = getRankedClubsOutsideTopDivisions(state); // [{teamId}] fora de A/B/C
+
+  // Seeded (22) = Série A (20) + 2 campeões nacionais (C/D do ano anterior).
+  // Campeão na Série A ou ausente → completa com o melhor clube por RNC.
+  const champions = [];
+  for (const id of [serieCChampion, serieDChampion]) {
+    if (id && !used.has(id)) { used.add(id); champions.push(id); }
+  }
+  const seeded = [...serieA, ...champions];
+  for (const r of ranked) {
+    if (seeded.length >= COPA_SEEDED) break;
+    if (!used.has(r.teamId)) { used.add(r.teamId); seeded.push(r.teamId); }
+  }
+
+  // Estaduais (104) por cota RNF (campeão estadual primeiro) + fill por RNC.
+  const rnf = computeRNF(state);
+  const byUf = {};
+  for (const r of ranked) {
+    if (used.has(r.teamId)) continue;
+    const uf = state.teams[r.teamId]?.state;
+    if (uf) (byUf[uf] = byUf[uf] || []).push(r.teamId);
+  }
+  const champByUf = {};
+  for (const e of Object.values(state.estaduais || {})) {
+    if (e?.champion && e.uf && !used.has(e.champion)) champByUf[e.uf] = e.champion;
+  }
+  const estaduais = [];
+  const pushEst = (id) => {
+    if (estaduais.length >= COPA_ESTADUAIS || !id || used.has(id)) return false;
+    used.add(id); estaduais.push(id); return true;
+  };
+  for (const { uf, rank } of rnf) {
+    const quota = copaCota(rank);
+    let got = 0;
+    const cands = [];
+    if (champByUf[uf]) cands.push(champByUf[uf]);
+    for (const id of (byUf[uf] || [])) if (id !== champByUf[uf]) cands.push(id);
+    for (const id of cands) {
+      if (got >= quota || estaduais.length >= COPA_ESTADUAIS) break;
+      if (pushEst(id)) got++;
+    }
+  }
+  for (const r of ranked) {
+    if (estaduais.length >= COPA_ESTADUAIS) break;
+    pushEst(r.teamId);
+  }
+
+  return { serieA, champions, seeded, estaduais };
+}
 
 // ---------------------- Construção ----------------------
 
-// libertaQualifiers: IDs dos 4 cabeças (top 4 Série A última temporada).
-//                    Se vazio (1ª temporada), usa top 4 por reputação da Série A.
-// seriesATeamIds, seriesBTeamIds: todos os times das duas séries
-export function createCupCompetition({ season, allTeams, libertaQualifiers, seriesATeamIds }) {
-  // Garante cabeças
-  let cabecas = libertaQualifiers && libertaQualifiers.length >= 4
-    ? libertaQualifiers.slice(0, 4)
-    : null;
+// Cria a Copa do Brasil da temporada a partir do estado (Série A atual +
+// campeões C/D do ano anterior + estaduais por RNF). Chamada após os estaduais.
+export function createCupCompetition({ state, season, serieCChampion = null, serieDChampion = null }) {
+  const { serieA, champions, seeded, estaduais } = buildCopaField(state, { serieCChampion, serieDChampion });
 
-  if (!cabecas) {
-    // 1ª temporada — usa top 4 da Série A por reputação
-    cabecas = [...seriesATeamIds]
-      .map(id => allTeams[id])
-      .sort((a, b) => b.reputation - a.reputation)
-      .slice(0, 4)
-      .map(t => t.id);
-  }
-
-  // Demais 56 times (todo o resto ordenado por reputação)
-  // - Top 8 (pos 5-12 overall)  → seeds da 3ª Fase
-  // - Pos 9-24                  → seeds da 2ª Fase (16)
-  // - Pos 25-56                 → entram na 1ª Fase (32)
-  const remaining = Object.values(allTeams)
-    .filter(t => !cabecas.includes(t.id))
-    .sort((a, b) => b.reputation - a.reputation);
-
-  const seedsFase3 = remaining.slice(0, 8).map(t => t.id);
-  const seedsFase2 = remaining.slice(8, 24).map(t => t.id);
-  const seedsFase1 = remaining.slice(24, 56).map(t => t.id);
+  // Estaduais vêm do mais forte (início) ao mais fraco (fim). Os 40 mais
+  // fracos começam na 1ª fase; os 64 mais fortes entram na 2ª.
+  const f1Seeds = estaduais.slice(COPA_ESTADUAIS - COPA_F1); // 40 mais fracos
+  const f2Seeds = estaduais.slice(0, COPA_ESTADUAIS - COPA_F1); // 64
+  const f3Seeds = [...seeded]; // 22 (Série A + campeões)
 
   return {
     id: "copa_brasil",
@@ -78,23 +138,25 @@ export function createCupCompetition({ season, allTeams, libertaQualifiers, seri
     type: "cup",
     tier: 1,
     season,
-    teams: [...cabecas, ...seedsFase3, ...seedsFase2, ...seedsFase1],
-    libertaEntrants: cabecas,
-    fase3Seeds: seedsFase3,
-    fase2Seeds: seedsFase2,
-    fase1Seeds: seedsFase1,
+    teams: [...f3Seeds, ...f2Seeds, ...f1Seeds],
+    seeded: f3Seeds,
+    champions,
+    serieAEntrants: serieA,
+    f1Seeds,
+    f2Seeds,
+    f3Seeds,
     phases: PHASE_ORDER.reduce((acc, key) => {
       acc[key] = { name: PHASE_META[key].name, legs: PHASE_META[key].legs, ties: [], complete: false, prizesPaid: false };
       return acc;
     }, {}),
     phaseOrder: [...PHASE_ORDER],
-    currentPhase: "fase1",
+    currentPhase: "f1",
     schedule: { ...DEFAULT_SCHEDULE },
     fixtures: [],
     standings: [],
     topScorers: [],
     champion: null,
-    drawsShown: [],  // fases cujo sorteio já foi exibido ao usuário
+    drawsShown: [],
     rules: { pointsWin: 0, pointsDraw: 0, format: "knockout" },
   };
 }
@@ -107,17 +169,17 @@ export function drawPhase(competition, phaseKey, rng, teamsById) {
 
   let entrants = [];
 
-  if (phaseKey === "fase1") {
-    entrants = [...competition.fase1Seeds];
-  } else if (phaseKey === "fase2") {
-    const winnersFase1 = competition.phases.fase1.ties.map(t => t.winnerId).filter(Boolean);
-    entrants = [...winnersFase1, ...competition.fase2Seeds];
-  } else if (phaseKey === "fase3") {
-    const winnersFase2 = competition.phases.fase2.ties.map(t => t.winnerId).filter(Boolean);
-    entrants = [...winnersFase2, ...competition.fase3Seeds];
-  } else if (phaseKey === "oitavas") {
-    const winnersFase3 = competition.phases.fase3.ties.map(t => t.winnerId).filter(Boolean);
-    entrants = [...winnersFase3, ...competition.libertaEntrants];
+  if (phaseKey === "f1") {
+    entrants = [...competition.f1Seeds];
+  } else if (phaseKey === "f2") {
+    const winnersF1 = competition.phases.f1.ties.map(t => t.winnerId).filter(Boolean);
+    entrants = [...winnersF1, ...competition.f2Seeds];
+  } else if (phaseKey === "f3") {
+    const winnersF2 = competition.phases.f2.ties.map(t => t.winnerId).filter(Boolean);
+    entrants = [...winnersF2, ...competition.f3Seeds];
+  } else if (phaseKey === "f4" || phaseKey === "oitavas") {
+    const prevKey = phaseKey === "f4" ? "f3" : "f4";
+    entrants = competition.phases[prevKey].ties.map(t => t.winnerId).filter(Boolean);
   } else {
     // Quartas, semi, final: segue chaveamento (vencedores pareados em ordem)
     const prevKey = competition.phaseOrder[competition.phaseOrder.indexOf(phaseKey) - 1];
@@ -126,7 +188,7 @@ export function drawPhase(competition, phaseKey, rng, teamsById) {
   }
 
   const legs = PHASE_META[phaseKey].legs;
-  const isRandomDraw = ["fase1", "fase2", "fase3", "oitavas"].includes(phaseKey);
+  const isRandomDraw = ["f1", "f2", "f3", "f4", "oitavas"].includes(phaseKey);
 
   // Para fases aleatórias: embaralha. Para chaveamento: mantém ordem.
   const pairs = [];
@@ -166,23 +228,24 @@ function makeTie({ phaseKey, idx, teamAId, teamBId, legs, teamsById, season }) {
 
   let bestSeedId, otherId;
   if (legs === 1) {
-    // Único jogo: menor reputação tem mando
     if (teamA.reputation <= teamB.reputation) { bestSeedId = teamB.id; otherId = teamA.id; }
     else                                        { bestSeedId = teamA.id; otherId = teamB.id; }
-    // No jogo único, o "underdog" joga em casa
-    const tie = {
+    // Jogo único: o "azarão" (pior ranqueado) manda em casa — EXCETO na final,
+    // onde manda o de melhor campanha (proxy: maior reputação).
+    const homeId = phaseKey === "final" ? bestSeedId : otherId;
+    const awayId = phaseKey === "final" ? otherId : bestSeedId;
+    return {
       id: `tie_${phaseKey}_${idx}`,
       phase: phaseKey,
       bracketPos: idx,
-      teamAId: otherId,    // mandante (azarão)
-      teamBId: bestSeedId, // visitante
+      teamAId: homeId,
+      teamBId: awayId,
       legs: [
-        makeLeg({ phaseKey, idx, legNum: 1, homeId: otherId, awayId: bestSeedId, season }),
+        makeLeg({ phaseKey, idx, legNum: 1, homeId, awayId, season }),
       ],
       aggregate: null,
       winnerId: null,
     };
-    return tie;
   }
 
   // Ida e volta: melhor seed (= melhor campanha) joga a volta em casa
@@ -404,7 +467,7 @@ export function maybeDrawNextPhase(competition, leagueRound, rng, teamsById) {
 }
 
 function canPhaseBeDrawn(competition, phaseKey) {
-  if (phaseKey === "fase1") return true;
+  if (phaseKey === "f1") return true;
   const idx = competition.phaseOrder.indexOf(phaseKey);
   const prevKey = competition.phaseOrder[idx - 1];
   return competition.phases[prevKey].complete;

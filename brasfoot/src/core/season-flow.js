@@ -235,6 +235,17 @@ function finishEstadualPhase() {
     log(`Série D ${state.season} montada: ${field.length} clubes (${sources.serieC.length} da C, ${sources.permanencia.length} permanência, ${sources.estadual.length} estaduais, ${sources.rnc.length} ranking).`);
   } catch (e) { console.error("Falha ao montar Série D:", e); }
 
+  // Copa do Brasil da temporada (após os estaduais): 20 Série A + campeões
+  // C/D do ano anterior + 104 estaduais por cota RNF.
+  try {
+    const champs = state.copaPendingChampions || {};
+    state.competitions.copa_brasil = createCupCompetition({
+      state, season: state.season,
+      serieCChampion: champs.serieC || null,
+      serieDChampion: champs.serieD || null,
+    });
+  } catch (e) { console.error("Falha ao montar Copa do Brasil:", e); }
+
   // Transição pra temporada nacional
   state.seasonPhase = "national";
   state.estadualRound = 1;
@@ -567,12 +578,8 @@ async function closeWeek(round) {
     finishSerieD();              // garante acesso/campeão antes do endSeason
     const report = endSeason(state, rng);
     generateSeasonEndNews(state, report);
-    state.competitions.copa_brasil = createCupCompetition({
-      season: state.season,
-      allTeams: state.teams,
-      libertaQualifiers: report.libertaQualifiers || null,
-      seriesATeamIds: state.competitions.brasileirao_a.teams,
-    });
+    // A Copa do Brasil da próxima temporada é montada na pré-temporada
+    // seguinte (finishEstadualPhase), após os estaduais e a Série D.
     showSeasonRecap(report);
   }
 
@@ -814,12 +821,8 @@ async function finalizeRound(round) {
     finishSerieD();              // garante acesso/campeão antes do endSeason
     const report = endSeason(state, rng);
     generateSeasonEndNews(state, report);
-    state.competitions.copa_brasil = createCupCompetition({
-      season: state.season,
-      allTeams: state.teams,
-      libertaQualifiers: report.libertaQualifiers || null,
-      seriesATeamIds: state.competitions.brasileirao_a.teams,
-    });
+    // A Copa do Brasil da próxima temporada é montada na pré-temporada
+    // seguinte (finishEstadualPhase), após os estaduais e a Série D.
     showSeasonRecap(report);
   }
 
@@ -892,15 +895,10 @@ export async function forceResolveSeason() {
   // 2.5 Garante a Série D concluída (acesso + campeão) antes do endSeason
   finishSerieD();
 
-  // 3. Dispara endSeason e cria nova copa
+  // 3. Dispara endSeason (a Copa da próxima temporada nasce na pré-temporada
+  //    seguinte, em finishEstadualPhase).
   const report = endSeason(state, rng);
   generateSeasonEndNews(state, report);
-  state.competitions.copa_brasil = createCupCompetition({
-    season: state.season,
-    allTeams: state.teams,
-    libertaQualifiers: report.libertaQualifiers || null,
-    seriesATeamIds: state.competitions.brasileirao_a.teams,
-  });
   showSeasonRecap(report);
 
   try { await saveGame(state); } catch (e) { console.warn("Save falhou:", e); }

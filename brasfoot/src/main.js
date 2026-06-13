@@ -12,7 +12,6 @@ import {
   renewContract, getRenewalExpectation,
   respondToOffer, resolveTransferRequest, unlistPlayer,
 } from "./engine/transfers.js";
-import { createCupCompetition } from "./engine/cup.js";
 import { createSerieCPhase1 } from "./engine/serie-c.js";
 import { generateSeasonalYouth, promoteProspect, sellProspect, releaseProspect } from "./engine/academy.js";
 import { pickAITrainingFocus } from "./engine/training.js";
@@ -294,6 +293,7 @@ async function startGame(teamId) {
     estaduais: null,
     serieD: null,                 // montada após os estaduais (sistema de vagas)
     serieDPendingRelegated: [],   // rebaixados da C aguardando a próxima D
+    copaPendingChampions: null,   // campeões C/D do ano anterior p/ a Copa
     settings: { difficulty: "normal", language: "pt-BR", seed },
   });
 
@@ -339,13 +339,8 @@ async function startGame(teamId) {
     relegated: [],
   };
 
-  // Cria Copa do Brasil para esta temporada
-  state.competitions.copa_brasil = createCupCompetition({
-    season: 2026,
-    allTeams: state.teams,
-    libertaQualifiers: null,
-    seriesATeamIds: SERIE_A_SEED.map(t => t.id),
-  });
+  // A Copa do Brasil é montada na transição pré-temporada→nacional (após os
+  // estaduais), pelo sistema de vagas — ver finishEstadualPhase.
 
   // Diversifica formações e foco de treino da IA (usuário começa em 4-3-3 + técnica)
   const aiFormations = Object.keys(FORMATIONS);
