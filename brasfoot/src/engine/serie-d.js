@@ -419,6 +419,12 @@ export function isTeamInSerieD(serieD, teamId) {
   return serieD.groups.some(g => g.teams.includes(teamId));
 }
 
+// O clube se classificou para o mata-mata (estava entre os 32)?
+export function reachedSerieDKnockout(serieD, teamId) {
+  if (!serieD?.ko?.r32?.length) return false;
+  return serieD.ko.r32.some(t => t.teamAId === teamId || t.teamBId === teamId);
+}
+
 // Partida pendente do usuário na rodada interna corrente (ou null). Retorna a
 // entry de getSerieDMatchesForRound (com match/kind/compId/tie).
 export function getUserSerieDMatch(serieD, teamId) {

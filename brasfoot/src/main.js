@@ -363,7 +363,10 @@ async function startGame(teamId) {
   // Carreira do treinador + meta da diretoria para a 1ª temporada
   initManager(state, ui.myTeamId);
   assignBoardObjective(state, ui.myTeamId);
-  announceBoardObjective(state);
+  // Clube da Série D: a meta real ("Acesso à Série C" / "Classificar ao
+  // mata-mata") só é calibrada quando o campo é montado, na transição
+  // pré-temporada→nacional. Evita anunciar a meta neutra provisória aqui.
+  if (ui.myCompId !== "serie_d") announceBoardObjective(state);
 
   // Ranking Nacional de Clubes: semente inicial baseada na reputação
   seedInitialRanking(state);

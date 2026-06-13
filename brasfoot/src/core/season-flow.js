@@ -244,6 +244,15 @@ function finishEstadualPhase() {
   const cid = resolveUserCompetition();
   if (cid) { ui.myCompId = cid; ui.standingsView = cid; }
 
+  // Meta da diretoria da Série D só dá pra calibrar depois que o campo é
+  // montado. Reatribui (e anuncia, se mudou) para o usuário agora na Série D.
+  if (state.managedTeamId && ui.myCompId === "serie_d") {
+    const before = state.teams[state.managedTeamId]?.board?.objective?.kind;
+    assignBoardObjective(state, state.managedTeamId);
+    const after = state.teams[state.managedTeamId]?.board?.objective?.kind;
+    if (after !== before) announceBoardObjective(state);
+  }
+
   log(`Pré-temporada encerrada. Começa o Brasileirão ${state.season}!`);
 }
 

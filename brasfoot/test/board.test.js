@@ -51,6 +51,47 @@ test("assignBoardObjective: clube médio recebe meio de tabela; fraco, permanên
   assert.equal(weak.targetPos, 16);
 });
 
+// Estado com um clube na Série D (fora de A/B/C) + campo de 96.
+function makeDState() {
+  const teams = {};
+  const field = [];
+  for (let i = 0; i < 96; i++) { const id = "d" + i; teams[id] = { id, name: id, reputation: 60 - Math.floor(i / 2) }; field.push(id); }
+  const groups = [];
+  for (let g = 0; g < 24; g++) groups.push({ teams: field.slice(g * 4, g * 4 + 4) });
+  return {
+    season: 2026, teams,
+    competitions: { brasileirao_a: { teams: [] }, brasileirao_b: { teams: [] }, brasileirao_c_p1: { teams: [] } },
+    serieD: { groups, promoted: [], champion: null, ko: { r32: [] } },
+  };
+}
+
+test("assignBoardObjective: Série D — forte busca acesso, fraco busca mata-mata", () => {
+  const state = makeDState();
+  const strong = assignBoardObjective(state, "d0").objective;   // melhor reputação
+  assert.equal(strong.kind, "promotion_d");
+  assert.equal(strong.label, "Acesso à Série C");
+  assert.equal(strong.compId, "serie_d");
+  const weak = assignBoardObjective(state, "d95").objective;     // pior reputação
+  assert.equal(weak.kind, "knockout_d");
+});
+
+test("evaluateObjective: Série D — acesso cumpre, campeão supera, fora do KO fracassa", () => {
+  const state = makeDState();
+  state.serieD.ko.r32 = [{ teamAId: "d0", teamBId: "d1" }];      // d0/d1 no mata-mata
+  state.serieD.promoted = ["d0"];                                 // d0 subiu
+  state.serieD.champion = "d0";
+  assignBoardObjective(state, "d0");                              // promotion_d
+  const evD0 = evaluateObjective(state, "d0", {});
+  assert.ok(evD0.met && evD0.exceeded, "acesso + título");
+
+  // d50 com meta de acesso, mas não chegou ao mata-mata → fracasso
+  state.teams.d50.reputation = 100;                              // força promotion_d
+  assignBoardObjective(state, "d50");
+  const evD50 = evaluateObjective(state, "d50", {});
+  assert.equal(evD50.kind, "promotion_d");
+  assert.ok(!evD50.met && evD50.failedBadly, "não classificou → fracasso");
+});
+
 test("computeConfidence: alta acima da meta, baixa abaixo", () => {
   // T0 é favorito (meta G6). Se está em 1º, confiança alta.
   const top = makeAState({ played: true, order: ["T0", ...Array.from({ length: 19 }, (_, i) => "T" + (i + 1))] });
