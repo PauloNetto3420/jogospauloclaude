@@ -98,6 +98,13 @@ export function endSeason(state, rng) {
   report.promotedFromD = promotedFromD;
   report.serieDChampion = serieD?.champion || null;
 
+  // Campeões nacionais (C e D) que entram na Copa do Brasil da próxima
+  // temporada — montada na pré-temporada seguinte (finishEstadualPhase).
+  state.copaPendingChampions = {
+    serieC: state.serieCMeta?.champion || null,
+    serieD: serieD?.champion || null,
+  };
+
   // 2.5 Snapshot do histórico ANTES de recriar competições (senão perde
   //     standings finais e artilheiros da temporada que terminou).
   recordSeasonHistory(state, report);

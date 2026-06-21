@@ -22,13 +22,13 @@ export function renderCup() {
           : "Você não está participando desta edição"}
     </div>
 
-    ${cup.libertaEntrants?.length ? `
+    ${cup.seeded?.length ? `
       <div class="card" style="padding:14px 18px;margin-bottom:14px">
         <div style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px">
-          Cabeças (entram nas Oitavas)
+          Cabeças de chave · ${cup.seeded.length} (Série A + campeões C/D · entram na 3ª fase)
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          ${cup.libertaEntrants.map(id => {
+          ${cup.seeded.map(id => {
             const t = state.teams[id];
             const isMe = id === ui.myTeamId;
             return `<span style="background:${isMe ? "rgba(var(--accent-rgb),0.15)" : "var(--bg-2)"};border:1px solid ${isMe ? "var(--accent)" : "var(--border)"};padding:4px 10px;border-radius:6px;font-size:12px">
@@ -45,9 +45,9 @@ export function renderCup() {
   `;
 }
 
-// Fases preliminares (1ª, 2ª, 3ª) — formato compacto/lista
+// Fases preliminares (1ª a 4ª, jogo único) — formato compacto/lista
 function renderCupEarlyPhases(cup) {
-  const early = ["fase1", "fase2", "fase3"];
+  const early = ["f1", "f2", "f3", "f4"];
   return early.map(phaseKey => renderCupPhase(cup, phaseKey)).join("");
 }
 

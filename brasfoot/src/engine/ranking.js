@@ -30,7 +30,7 @@ const LEAGUE_SCALE = {
 
 // Pontos por fase alcançada na Copa do Brasil (a mais profunda conta).
 const CUP_PHASE_POINTS = {
-  fase1: 2, fase2: 4, fase3: 7, oitavas: 12, quartas: 20, semi: 32, final: 45,
+  f1: 2, f2: 4, f3: 6, f4: 8, oitavas: 12, quartas: 20, semi: 32, final: 45,
 };
 const CUP_CHAMPION_BONUS = 25;
 
@@ -156,6 +156,21 @@ export function computeRanking(state, { window = RANKING_WINDOW } = {}) {
 export function getRankingPosition(state, teamId) {
   const idx = computeRanking(state).findIndex(r => r.teamId === teamId);
   return idx >= 0 ? idx + 1 : null;
+}
+
+// Ranking Nacional das Federações (RNF): ordena as UFs pela soma do RNC dos
+// seus clubes. Usado para distribuir vagas (Série D e Copa do Brasil).
+export function computeRNF(state) {
+  const pts = {};
+  for (const r of computeRanking(state)) pts[r.teamId] = r.points;
+  const ufPts = {};
+  for (const t of Object.values(state.teams)) {
+    if (!t.state) continue;
+    ufPts[t.state] = (ufPts[t.state] || 0) + (pts[t.id] || 0);
+  }
+  return Object.keys(ufPts)
+    .sort((a, b) => ufPts[b] - ufPts[a] || a.localeCompare(b))
+    .map((uf, i) => ({ uf, rank: i + 1, points: Math.round(ufPts[uf]) }));
 }
 
 // Clubes fora das divisões A/B/C, ordenados pelo RNC. É a base do
